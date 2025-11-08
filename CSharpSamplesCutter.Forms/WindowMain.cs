@@ -109,11 +109,12 @@ namespace CSharpSamplesCutter.Forms
 			{
 				if (ModifierKeys.HasFlag(Keys.Control))
 				{
+					var selected = this.listBox_audios.SelectedIndex;
 					this.listBox_audios.SelectionMode = System.Windows.Forms.SelectionMode.MultiExtended;
-					// Add current selecton to multi selection
-					if (this.listBox_audios.SelectedItem != null)
+					
+					if (selected >= 0)
 					{
-						this.listBox_audios.SelectedItems.Add(this.listBox_audios.SelectedItem);
+						this.listBox_audios.SelectedIndices.Add(selected);
 					}
 				}
 			};
@@ -674,10 +675,6 @@ namespace CSharpSamplesCutter.Forms
 					if (string.IsNullOrEmpty(resultPath))
 					{
 						successCount++;
-						LogCollection.Log($"Exported audio sample to: {exportFilePath}");
-					}
-					else
-					{
 						LogCollection.Log($"Failed to export audio sample: {track.Name}");
 					}
 				}
@@ -716,10 +713,6 @@ namespace CSharpSamplesCutter.Forms
 
 				exportFilePath = await this.AudioC.Exporter.ExportWavAsync(track, 24, exportDirectory);
 				if (string.IsNullOrEmpty(exportFilePath))
-				{
-					LogCollection.Log($"Exported audio sample to: {exportFilePath}");
-				}
-				else
 				{
 					LogCollection.Log($"Failed to export audio sample: {track.Name}");
 				}
