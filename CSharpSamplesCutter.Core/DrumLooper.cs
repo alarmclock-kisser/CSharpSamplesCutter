@@ -104,7 +104,7 @@ namespace CSharpSamplesCutter.Core
             Random rnd = seed.HasValue ? new Random(seed.Value) : new Random();
             long humanizeFrames = (long) Math.Round(humanizeMsClamped / 1000.0 * targetRate);
 
-            List<AudioObj> loops = new List<AudioObj>(loopsCount);
+            List<AudioObj> loops = new(loopsCount);
 
             for (int li = 0; li < loopsCount; li++)
             {

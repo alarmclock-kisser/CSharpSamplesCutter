@@ -36,7 +36,6 @@ namespace CSharpSamplesCutter.Forms.Dialogs
 
         public CancellationTokenSource? Cts { get; private set; } = null;
         private readonly Random random = new();
-        private int StepsBack = 0;
 
         public int BarsCount => (int) this.numericUpDown_bars.Value;
         public int LoopsCount => (int) this.numericUpDown_loops.Value;
@@ -355,13 +354,23 @@ namespace CSharpSamplesCutter.Forms.Dialogs
             this.numericUpDown_seed.ValueChanged += this.numericUpDown_seed_ValueChanged;
         }
 
-        private void listBox_drumSet_SelectedIndexChanged(object sender, EventArgs e)
+        private async void listBox_drumSet_SelectedIndexChanged(object sender, EventArgs e)
         {
             // When selecting a mapped drum, render its waveform and reset selection
             this.selectionStartFrame = this.selectionEndFrame = -1;
             this.hoverFrame = -1;
-            _ = this.RenderSelectedDrumAsync();
-        }
+            await this.RenderSelectedDrumAsync();
+
+			// If it was triggered by mouse click selection, play sample (mouse down, left on listbox)
+			if (this.listBox_drumSet.ClientRectangle.Contains(this.listBox_drumSet.PointToClient(Cursor.Position)))
+			{
+				var track = this.listBox_drumSet.SelectedItem as AudioObj;
+                if (track != null)
+                {
+                    await track.PlayAsync(CancellationToken.None, null, this.targetPeak / 2, 120);
+				}
+			}
+		}
 
         // Waveform rendering and selection helpers
         private async Task RenderSelectedDrumAsync()
@@ -631,7 +640,6 @@ namespace CSharpSamplesCutter.Forms.Dialogs
                     return;
                 }
 
-                this.StepsBack = 0; // interne Zählung nicht mehr benötigt
                 this.listBox_drumSet.Refresh();
                 LogCollection.Log($"Undo applied on track: {track.Name}");
             }
@@ -654,7 +662,6 @@ namespace CSharpSamplesCutter.Forms.Dialogs
                     return;
                 }
 
-                this.StepsBack = 0;
                 this.listBox_drumSet.Refresh();
                 LogCollection.Log($"Redo applied on track: {track.Name}");
             }

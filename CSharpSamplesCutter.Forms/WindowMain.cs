@@ -436,26 +436,13 @@ namespace CSharpSamplesCutter.Forms
             // Ctrl+Backspace: Play/Stop toggle (unverändert)
             if (ModifierKeys.HasFlag(Keys.Control))
             {
-                if (this.AudioC.Playing.Any())
-                {
-                    await this.AudioC.StopAllAsync();
-                    this.button_playback.Invoke(() =>
-                    {
-                        this.button_playback.Text = "▶";
-                    });
-                    this.PlaybackCancellationTokens.Clear();
-                }
-                else
-                {
-                    var guidsToPlay = this.SoloPlayback
-                        ? this.SelectedGuids.Count > 0
-                            ? this.SelectedGuids
-                            : (this.SelectedTrack != null ? [this.SelectedTrack.Id] : [])
-                        : this.AudioC.Audios.Select(a => a.Id).ToList();
-
-                    await this.AudioC.PlayManyAsync(guidsToPlay, this.Volume);
-                }
-
+				await this.AudioC.StopAllAsync();
+                await this.AudioC_res.StopAllAsync();
+				this.button_playback.Invoke(() =>
+				{
+					this.button_playback.Text = "▶";
+				});
+				this.PlaybackCancellationTokens.Clear();
                 return;
             }
 
@@ -904,8 +891,8 @@ namespace CSharpSamplesCutter.Forms
 
             if (this.SoloPlayback)
             {
-                await this.AudioC.StopAllAsync(false);
-                await this.AudioC_res.StopAllAsync(false);
+                await this.AudioC.StopAllAsync();
+                await this.AudioC_res.StopAllAsync();
             }
 
             var track = this.SelectedTrack;
