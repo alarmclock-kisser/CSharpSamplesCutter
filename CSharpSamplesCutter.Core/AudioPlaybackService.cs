@@ -174,8 +174,8 @@ namespace CSharpSamplesCutter.Core
 
             this.PlaybackRate = factor;
 
-			// Neue Pipeline auf Basis derselben Quelle aufbauen und atomar umschalten
-			ISampleProvider? currentSource;
+            // Neue Pipeline auf Basis derselben Quelle aufbauen und atomar umschalten
+            ISampleProvider? currentSource;
             lock (this.graphGate)
             {
                 currentSource = this.pipeline; // aktuelle Pipeline-Quelle ist die erste Stufe der Kette

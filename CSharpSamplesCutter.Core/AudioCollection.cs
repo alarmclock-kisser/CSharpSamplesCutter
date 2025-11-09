@@ -41,7 +41,7 @@ namespace CSharpSamplesCutter.Core
 
         // Indexer
         public AudioObj? this[Guid id] => this.Audios.FirstOrDefault(a => a.Id == id);
-        public AudioObj? this[string name] => this.Audios.FirstOrDefault(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        public AudioObj? this[string name] => this.Audios.FirstOrDefault(a => a.Name.Trim().Equals(name.Replace("▶", "").Replace("||", "").Trim(), StringComparison.OrdinalIgnoreCase));
 
         public AudioCollection(string? workingDir = null, string? importDir = null, int wavRecordingBits = 24)
         {
@@ -59,8 +59,6 @@ namespace CSharpSamplesCutter.Core
             this.Exporter = new AudioExporter(this.ExportPath);
         }
 
-        // Snapshot-Helfer: Wird vor einer destruktiven Änderung aufgerufen (z.B. Erase)
-        // Legt aktuellen Zustand auf PreviousSteps und leert den Redo-Stack.
         public async Task<bool> PushSnapshotAsync(Guid id)
         {
             var audio = this[id];
@@ -235,7 +233,7 @@ namespace CSharpSamplesCutter.Core
 
         private static void ApplyState(AudioObj target, AudioObj source)
         {
-            target.Data = (float[])source.Data.Clone();
+            target.Data = (float[]) source.Data.Clone();
             target.SampleRate = source.SampleRate;
             target.Channels = source.Channels;
             target.BitDepth = source.BitDepth;
@@ -250,32 +248,40 @@ namespace CSharpSamplesCutter.Core
         }
 
         // Playback
-        public async Task PlayManyAsync(IEnumerable<Guid> ids)
+        public async Task PlayManyAsync(IEnumerable<Guid> ids, float volume = 1.0f, int initialDelay = 90)
         {
-            var tasks = ids.Select(id => this[id]?.PlayAsync(CancellationToken.None) ?? Task.CompletedTask);
-            await Task.WhenAll(tasks).ConfigureAwait(false);
+            var tasks = ids.Select(id => this[id]?.PlayAsync(CancellationToken.None, null, volume, Math.Max(initialDelay, 25)) ?? Task.CompletedTask);
+
+            await Task.WhenAll(tasks);
         }
 
-        public async Task PlayAllAsync()
+        public async Task PlayAllAsync(float volume = 1.0f)
         {
-            var tasks = this.Audios.Where(a => !a.Playing).Select(a => a.PlayAsync(CancellationToken.None));
-            await Task.WhenAll(tasks).ConfigureAwait(false);
+            var tasks = this.Audios.Where(a => !a.Playing).Select(a => a.PlayAsync(CancellationToken.None, null, volume));
+
+            await Task.WhenAll(tasks);
         }
 
         public async Task StopManyAsync(IEnumerable<Guid> ids)
         {
             var tasks = ids.Select(id => this[id]?.StopAsync() ?? Task.CompletedTask);
-            await Task.WhenAll(tasks).ConfigureAwait(false);
+
+            await Task.WhenAll(tasks);
         }
 
-        public async Task StopAllAsync()
+        public async Task StopAllAsync(bool resetPosition = true)
         {
             var tasks = this.Audios.Select(async a =>
             {
                 await a.StopAsync();
-                a.StartingOffset = 0;
-                a.ScrollOffset = 0;
-			});
+                if (resetPosition)
+                {
+                    a.StartingOffset = 0;
+                    a.ScrollOffset = 0;
+                    a.SetPosition(0);
+                }
+            });
+
             await Task.WhenAll(tasks);
         }
 
@@ -328,10 +334,32 @@ namespace CSharpSamplesCutter.Core
             {
                 return null;
             }
-            float bpm = (float)await BeatScanner.ScanBpmAsync(audio, windowSize, lookingRange, this.BeatScanMinimumBpm, this.BeatScanMaximumBpm);
-            if (set) audio.Bpm = bpm;
+            float bpm = (float) await BeatScanner.ScanBpmAsync(audio, windowSize, lookingRange, this.BeatScanMinimumBpm, this.BeatScanMaximumBpm);
+            if (set)
+            {
+                audio.Bpm = bpm;
+            }
+
             return bpm;
         }
+
+
+
+        // Processing Multi
+        public async Task MergeSimilarAudiosAsync(float? threshold = null, bool mixSimilarAudios = false)
+        {
+            var distinctAudios = await AudioCutter.MergeSimilarAudiosAsync(this.Audios, threshold, mixSimilarAudios);
+            await this.ClearAsync();
+            this.Audios.Clear();
+            foreach (var audio in distinctAudios)
+            {
+                this.Audios.Add(audio);
+            }
+
+            LogCollection.Log($"Merged audio collection to {this.Audios.Count} distinct audios by similarity.");
+		}
+
+
 
         // Helpers
         public static string? VerifyAudioFile(string filePath)

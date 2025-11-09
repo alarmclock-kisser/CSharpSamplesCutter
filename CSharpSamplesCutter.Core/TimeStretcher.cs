@@ -16,16 +16,16 @@ namespace CSharpSamplesCutter.Core
     {
         public static async Task<AudioObj> TimeStretchAllThreadsAsync(AudioObj obj, int chunkSize = 16384, float overlap = 0.5f, double factor = 1.000, bool keepData = false, float normalize = 1.0f, int? maxWorkers = null, IProgress<int>? progress = null)
         {
-			if (maxWorkers == null)
-			{
-				maxWorkers = Environment.ProcessorCount;
-			}
-			else
-			{
-				maxWorkers = Math.Clamp(maxWorkers.Value, 1, Environment.ProcessorCount);
-			}
+            if (maxWorkers == null)
+            {
+                maxWorkers = Environment.ProcessorCount;
+            }
+            else
+            {
+                maxWorkers = Math.Clamp(maxWorkers.Value, 1, Environment.ProcessorCount);
+            }
 
-			float[] backupData = obj.Data;
+            float[] backupData = obj.Data;
             int sampleRate = obj.SampleRate;
             int overlapSize = obj.OverlapSize;
 
@@ -38,7 +38,7 @@ namespace CSharpSamplesCutter.Core
             if (!chunks.Any())
             {
                 obj.Data = backupData;
-				return obj;
+                return obj;
             }
             obj["chunk"] = sw.Elapsed.TotalMilliseconds;
             totalMs += sw.Elapsed.TotalMilliseconds;
@@ -56,9 +56,9 @@ namespace CSharpSamplesCutter.Core
             if (!fftChunks.Any())
             {
                 obj.Data = backupData;
-				return obj;
+                return obj;
             }
-			obj["fft"] = sw.Elapsed.TotalMilliseconds;
+            obj["fft"] = sw.Elapsed.TotalMilliseconds;
             totalMs += sw.Elapsed.TotalMilliseconds;
             sw.Restart();
 
@@ -68,12 +68,12 @@ namespace CSharpSamplesCutter.Core
                 // Stretch complex-chunks using algorithm
                 return StretchChunkAsync(transformedChunk, chunkSize, overlapSize, sampleRate, factor, progress);
             });
-            
+
             var stretchChunks = await Task.WhenAll(stretchTasks);
             if (!stretchChunks.Any())
             {
                 obj.Data = backupData;
-				return obj;
+                return obj;
             }
             obj["stretch"] = sw.Elapsed.TotalMilliseconds;
             totalMs += sw.Elapsed.TotalMilliseconds;
@@ -93,7 +93,7 @@ namespace CSharpSamplesCutter.Core
             if (!ifftChunks.Any())
             {
                 obj.Data = backupData;
-				return obj;
+                return obj;
             }
             obj["ifft"] = (float) sw.Elapsed.TotalMilliseconds;
             totalMs += sw.Elapsed.TotalMilliseconds;
@@ -103,14 +103,14 @@ namespace CSharpSamplesCutter.Core
             if (obj.Data.LongLength <= 0)
             {
                 obj.Data = backupData;
-				return obj;
+                return obj;
             }
             obj["aggregate"] = sw.Elapsed.TotalMilliseconds;
             totalMs += sw.Elapsed.TotalMilliseconds;
 
-            obj.Bpm = (float)(obj.Bpm / factor);
+            obj.Bpm = (float) (obj.Bpm / factor);
 
-			sw.Restart();
+            sw.Restart();
 
             if (normalize > 0)
             {
@@ -124,130 +124,130 @@ namespace CSharpSamplesCutter.Core
             return obj;
         }
 
-		public static async Task<AudioObj> TimeStretchMostThreadsAsync(AudioObj obj, int chunkSize = 16384, float overlap = 0.5f, double factor = 1.000, bool keepData = false, float normalize = 1.0f, int? maxWorkers = null, IProgress<int>? progress = null)
-		{
-			if (maxWorkers == null)
-			{
-				maxWorkers = Environment.ProcessorCount;
-			}
-			else
-			{
-				maxWorkers = Math.Clamp(maxWorkers.Value, 1, Environment.ProcessorCount);
-			}
+        public static async Task<AudioObj> TimeStretchMostThreadsAsync(AudioObj obj, int chunkSize = 16384, float overlap = 0.5f, double factor = 1.000, bool keepData = false, float normalize = 1.0f, int? maxWorkers = null, IProgress<int>? progress = null)
+        {
+            if (maxWorkers == null)
+            {
+                maxWorkers = Environment.ProcessorCount;
+            }
+            else
+            {
+                maxWorkers = Math.Clamp(maxWorkers.Value, 1, Environment.ProcessorCount);
+            }
 
-			// Die ParallelOptions mit der maximalen Thread-Anzahl festlegen
-			var parallelOptions = new ParallelOptions
-			{
-				MaxDegreeOfParallelism = maxWorkers.Value > 0 ? maxWorkers.Value : Environment.ProcessorCount
-			};
+            // Die ParallelOptions mit der maximalen Thread-Anzahl festlegen
+            var parallelOptions = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = maxWorkers.Value > 0 ? maxWorkers.Value : Environment.ProcessorCount
+            };
 
-			float[] backupData = obj.Data;
-			int sampleRate = obj.SampleRate;
-			int overlapSize = obj.OverlapSize;
+            float[] backupData = obj.Data;
+            int sampleRate = obj.SampleRate;
+            int overlapSize = obj.OverlapSize;
 
-			Stopwatch sw = Stopwatch.StartNew();
+            Stopwatch sw = Stopwatch.StartNew();
 
-			// Get chunks
-			var chunks = await obj.GetChunksAsync(chunkSize, overlap, keepData, maxWorkers.Value);
-			if (!chunks.Any())
-			{
-				obj.Data = backupData;
-				return obj;
-			}
-			obj["chunk"] = sw.Elapsed.TotalMilliseconds;
-			sw.Restart();
+            // Get chunks
+            var chunks = await obj.GetChunksAsync(chunkSize, overlap, keepData, maxWorkers.Value);
+            if (!chunks.Any())
+            {
+                obj.Data = backupData;
+                return obj;
+            }
+            obj["chunk"] = sw.Elapsed.TotalMilliseconds;
+            sw.Restart();
 
-			// Asynchrone FFT auf allen Chunks
-			var fftChunks = new Complex[chunks.Count()][];
-			await Parallel.ForEachAsync(chunks.Select((chunk, index) => new { chunk, index }), parallelOptions, async (item, token) =>
-			{
-				fftChunks[item.index] = await FourierTransformForwardAsync(item.chunk, progress);
-			});
+            // Asynchrone FFT auf allen Chunks
+            var fftChunks = new Complex[chunks.Count()][];
+            await Parallel.ForEachAsync(chunks.Select((chunk, index) => new { chunk, index }), parallelOptions, async (item, token) =>
+            {
+                fftChunks[item.index] = await FourierTransformForwardAsync(item.chunk, progress);
+            });
 
-			if (!fftChunks.Any())
-			{
-				obj.Data = backupData;
-				return obj;
-			}
-			obj["fft"] = sw.Elapsed.TotalMilliseconds;
-			sw.Restart();
+            if (!fftChunks.Any())
+            {
+                obj.Data = backupData;
+                return obj;
+            }
+            obj["fft"] = sw.Elapsed.TotalMilliseconds;
+            sw.Restart();
 
-			// Asynchrones Time-Stretching
-			var stretchChunks = new Complex[fftChunks.Length][];
-			await Parallel.ForEachAsync(fftChunks.Select((chunk, index) => new { chunk, index }), parallelOptions, async (item, token) =>
-			{
-				stretchChunks[item.index] = await StretchChunkAsync(item.chunk, chunkSize, overlapSize, sampleRate, factor, progress);
-			});
+            // Asynchrones Time-Stretching
+            var stretchChunks = new Complex[fftChunks.Length][];
+            await Parallel.ForEachAsync(fftChunks.Select((chunk, index) => new { chunk, index }), parallelOptions, async (item, token) =>
+            {
+                stretchChunks[item.index] = await StretchChunkAsync(item.chunk, chunkSize, overlapSize, sampleRate, factor, progress);
+            });
 
-			if (!stretchChunks.Any())
-			{
-				obj.Data = backupData;
-				return obj;
-			}
-			obj["stretch"] = sw.Elapsed.TotalMilliseconds;
-			sw.Restart();
+            if (!stretchChunks.Any())
+            {
+                obj.Data = backupData;
+                return obj;
+            }
+            obj["stretch"] = sw.Elapsed.TotalMilliseconds;
+            sw.Restart();
 
-			// Set obj.StretchFactor
-			obj.StretchFactor = factor;
+            // Set obj.StretchFactor
+            obj.StretchFactor = factor;
 
-			// Asynchrone IFFT
-			var ifftChunks = new float[stretchChunks.Length][];
-			await Parallel.ForEachAsync(stretchChunks.Select((chunk, index) => new { chunk, index }), parallelOptions, async (item, token) =>
-			{
-				ifftChunks[item.index] = await FourierTransformInverseAsync(item.chunk, progress);
-			});
+            // Asynchrone IFFT
+            var ifftChunks = new float[stretchChunks.Length][];
+            await Parallel.ForEachAsync(stretchChunks.Select((chunk, index) => new { chunk, index }), parallelOptions, async (item, token) =>
+            {
+                ifftChunks[item.index] = await FourierTransformInverseAsync(item.chunk, progress);
+            });
 
-			if (!ifftChunks.Any())
-			{
-				obj.Data = backupData;
-				return obj;
-			}
-			obj["ifft"] = (float) sw.Elapsed.TotalMilliseconds;
-			sw.Restart();
+            if (!ifftChunks.Any())
+            {
+                obj.Data = backupData;
+                return obj;
+            }
+            obj["ifft"] = (float) sw.Elapsed.TotalMilliseconds;
+            sw.Restart();
 
-			await obj.AggregateStretchedChunksAsync(ifftChunks.ToList(), obj.StretchFactor, maxWorkers.Value);
-			if (obj.Data.LongLength <= 0)
-			{
-				obj.Data = backupData;
-				return obj;
-			}
-			obj["aggregate"] = sw.Elapsed.TotalMilliseconds;
-			sw.Restart();
+            await obj.AggregateStretchedChunksAsync(ifftChunks.ToList(), obj.StretchFactor, maxWorkers.Value);
+            if (obj.Data.LongLength <= 0)
+            {
+                obj.Data = backupData;
+                return obj;
+            }
+            obj["aggregate"] = sw.Elapsed.TotalMilliseconds;
+            sw.Restart();
 
-			if (normalize > 0)
-			{
-				await obj.NormalizeAsync(normalize);
-			}
-			obj["normalize"] = sw.Elapsed.TotalMilliseconds;
-			sw.Restart();
+            if (normalize > 0)
+            {
+                await obj.NormalizeAsync(normalize);
+            }
+            obj["normalize"] = sw.Elapsed.TotalMilliseconds;
+            sw.Restart();
 
-			return obj;
-		}
+            return obj;
+        }
 
         public static async Task<AudioObj> TimeStretchIterativelyAsync(AudioObj obj, int iterationSize = 1, int chunkSize = 16384, float overlap = 0.5f, bool keepData = false, float normalize = 1.0f, int? maxWorkers = null, IProgress<int>? progress = null)
         {
             if (maxWorkers == null)
             {
                 maxWorkers = Environment.ProcessorCount;
-			}
+            }
             else
             {
                 maxWorkers = Math.Clamp(maxWorkers.Value, 1, Environment.ProcessorCount);
-			}
+            }
 
             var chunks = await obj.GetChunksAsync(chunkSize, overlap, keepData, maxWorkers.Value);
             if (!chunks.Any())
             {
                 return obj;
-			}
+            }
 
             int sampleRate = obj.SampleRate;
             int overlapSize = obj.OverlapSize;
-            
+
             // STOPWATCH
             double totalMs = 0;
             Stopwatch sw = Stopwatch.StartNew();
-            
+
             // Iteratively process chunks in groups of iterationSize
             for (int i = 0; i < chunks.Count(); i += iterationSize)
             {
@@ -256,7 +256,7 @@ namespace CSharpSamplesCutter.Core
                 {
                     continue;
                 }
-                
+
                 // FFT on current chunks
                 var fftTasks = currentChunks.Select(chunk => FourierTransformForwardAsync(chunk, progress));
                 var fftChunks = await Task.WhenAll(fftTasks);
@@ -267,7 +267,7 @@ namespace CSharpSamplesCutter.Core
                 obj["fft"] = sw.Elapsed.TotalMilliseconds;
                 totalMs += sw.Elapsed.TotalMilliseconds;
                 sw.Restart();
-                
+
                 // Stretch on current fftChunks
                 var stretchTasks = fftChunks.Select(transformedChunk => StretchChunkAsync(transformedChunk, chunkSize, overlapSize, sampleRate, obj.StretchFactor, progress));
                 var stretchChunks = await Task.WhenAll(stretchTasks);
@@ -285,7 +285,7 @@ namespace CSharpSamplesCutter.Core
                 {
                     return obj;
                 }
-                obj["ifft"] = (float)sw.Elapsed.TotalMilliseconds;
+                obj["ifft"] = (float) sw.Elapsed.TotalMilliseconds;
                 totalMs += sw.Elapsed.TotalMilliseconds;
                 sw.Restart();
 
@@ -298,26 +298,26 @@ namespace CSharpSamplesCutter.Core
                 totalMs += sw.Elapsed.TotalMilliseconds;
                 sw.Restart();
 
-				// Collect garbage
+                // Collect garbage
                 GC.Collect();
-			}
+            }
 
-			if (normalize > 0)
+            if (normalize > 0)
             {
                 await obj.NormalizeAsync(normalize);
             }
             obj["normalize"] = sw.Elapsed.TotalMilliseconds;
-			totalMs += sw.Elapsed.TotalMilliseconds;
+            totalMs += sw.Elapsed.TotalMilliseconds;
             sw.Restart();
 
             return obj;
-		}
+        }
 
 
 
 
 
-		private static async Task<Complex[]> FourierTransformForwardAsync(float[] samples, IProgress<int>? progress = null)
+        private static async Task<Complex[]> FourierTransformForwardAsync(float[] samples, IProgress<int>? progress = null)
         {
             // FFT using nuget (samples.Length is guaranteed 2^n)
             return await Task.Run(() =>
@@ -336,14 +336,14 @@ namespace CSharpSamplesCutter.Core
             {
                 Fourier.Inverse(samples, FourierOptions.Matlab);
                 progress?.Report(1);
-                return samples.Select(c => (float)c.Real).ToArray();
+                return samples.Select(c => (float) c.Real).ToArray();
             });
         }
 
         private static async Task<Complex[]> StretchChunkAsync(Complex[] samples, int chunkSize, int overlapSize, int sampleRate, double factor, IProgress<int>? progress = null)
         {
             int hopIn = chunkSize - overlapSize;
-            int hopOut = (int)(hopIn * factor + 0.5);
+            int hopOut = (int) (hopIn * factor + 0.5);
 
             int totalBins = chunkSize;
             int totalChunks = samples.Length / chunkSize;
@@ -368,18 +368,18 @@ namespace CSharpSamplesCutter.Core
                         Complex cur = samples[idx];
                         Complex prev = samples[prevIdx];
 
-                        float phaseCur = (float)Math.Atan2(cur.Imaginary, cur.Real);
-                        float phasePrev = (float)Math.Atan2(prev.Imaginary, prev.Real);
-                        float mag = (float)Math.Sqrt(cur.Real * cur.Real + cur.Imaginary * cur.Imaginary);
+                        float phaseCur = (float) Math.Atan2(cur.Imaginary, cur.Real);
+                        float phasePrev = (float) Math.Atan2(prev.Imaginary, prev.Real);
+                        float mag = (float) Math.Sqrt(cur.Real * cur.Real + cur.Imaginary * cur.Imaginary);
 
                         float deltaPhase = phaseCur - phasePrev;
-                        float freqPerBin = (float)sampleRate / chunkSize;
-                        float expectedPhaseAdv = 2.0f * (float)Math.PI * freqPerBin * bin * hopIn / sampleRate;
+                        float freqPerBin = (float) sampleRate / chunkSize;
+                        float expectedPhaseAdv = 2.0f * (float) Math.PI * freqPerBin * bin * hopIn / sampleRate;
 
                         float delta = deltaPhase - expectedPhaseAdv;
-                        delta = (float)(delta + Math.PI) % (2.0f * (float)Math.PI) - (float)Math.PI;
+                        delta = (float) (delta + Math.PI) % (2.0f * (float) Math.PI) - (float) Math.PI;
 
-                        float phaseOut = phasePrev + expectedPhaseAdv + (float)(delta * factor);
+                        float phaseOut = phasePrev + expectedPhaseAdv + (float) (delta * factor);
 
                         output[idx] = new Complex(mag * Math.Cos(phaseOut), mag * Math.Sin(phaseOut));
                     }
