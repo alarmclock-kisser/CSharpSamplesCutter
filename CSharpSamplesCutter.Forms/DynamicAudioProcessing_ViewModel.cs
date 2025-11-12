@@ -739,7 +739,7 @@ namespace CSharpSamplesCutter.Forms
                     var win = this.MainWindow as WindowMain;
                     if (win != null)
                     {
-                        win.UpdateSelectedCollectionListBox();
+                        // win.UpdateSelectedCollectionListBox();
                     }
                 }));
             }

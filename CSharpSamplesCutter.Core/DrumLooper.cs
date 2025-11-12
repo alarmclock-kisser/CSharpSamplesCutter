@@ -279,55 +279,55 @@ namespace CSharpSamplesCutter.Core
             };
         }
 
-        private static AudioObj FitToGridDurations(AudioObj src, long framesPerSixteenth, int[] allowedSixteenthMultipliers)
-        {
-            int ch = Math.Max(1, src.Channels);
-            long frames = src.Data.LongLength / ch;
-            long[] allowedFrames = allowedSixteenthMultipliers.Select(m => Math.Max(1, framesPerSixteenth * m)).ToArray();
-            long best = allowedFrames.Where(f => f <= frames).DefaultIfEmpty(allowedFrames[0]).Max();
-            bool pad = false;
-            if (best <= 0)
-            {
-                best = allowedFrames[0];
-                pad = true;
-            }
-            else if (best < frames && !allowedFrames.Contains(frames))
-            {
-                pad = false;
-            }
-            else if (frames < allowedFrames[0])
-            {
-                best = allowedFrames[0];
-                pad = true;
-            }
+		private static AudioObj FitToGridDurations(AudioObj src, long framesPerSixteenth, int[] allowedSixteenthMultipliers)
+		{
+			int ch = Math.Max(1, src.Channels);
+			long frames = src.Data.LongLength / ch;
+			long[] allowedFrames = allowedSixteenthMultipliers.Select(m => Math.Max(1, framesPerSixteenth * m)).ToArray();
+			long best = allowedFrames.Where(f => f <= frames).DefaultIfEmpty(allowedFrames[0]).Max();
+			// bool pad = false; // Entfernt, da nicht verwendet
+			if (best <= 0)
+			{
+				best = allowedFrames[0];
+				// pad = true;
+			}
+			else if (best < frames && !allowedFrames.Contains(frames))
+			{
+				// pad = false;
+			}
+			else if (frames < allowedFrames[0])
+			{
+				best = allowedFrames[0];
+				// pad = true;
+			}
 
-            long outFrames = best;
-            int outLen = checked((int) (outFrames * ch));
-            float[] dst = new float[outLen];
-            int copyLen = (int) Math.Min(dst.Length, src.Data.Length);
-            Array.Copy(src.Data, 0, dst, 0, copyLen);
+			long outFrames = best;
+			int outLen = checked((int) (outFrames * ch));
+			float[] dst = new float[outLen];
+			int copyLen = (int) Math.Min(dst.Length, src.Data.Length);
+			Array.Copy(src.Data, 0, dst, 0, copyLen);
 
-            return new AudioObj
-            {
-                Id = src.Id,
-                Name = src.Name,
-                FilePath = src.FilePath,
-                Data = dst,
-                SampleRate = src.SampleRate,
-                Channels = src.Channels,
-                BitDepth = src.BitDepth,
-                Bpm = src.Bpm,
-                ScannedBpm = src.ScannedBpm,
-                Timing = src.Timing,
-                ScannedTiming = src.ScannedTiming,
-                Volume = src.Volume,
-                Length = dst.LongLength,
-                Duration = TimeSpan.FromSeconds((double) outFrames / Math.Max(1, src.SampleRate)),
-                SampleTag = src.SampleTag
-            };
-        }
+			return new AudioObj
+			{
+				Id = src.Id,
+				Name = src.Name,
+				FilePath = src.FilePath,
+				Data = dst,
+				SampleRate = src.SampleRate,
+				Channels = src.Channels,
+				BitDepth = src.BitDepth,
+				Bpm = src.Bpm,
+				ScannedBpm = src.ScannedBpm,
+				Timing = src.Timing,
+				ScannedTiming = src.ScannedTiming,
+				Volume = src.Volume,
+				Length = dst.LongLength,
+				Duration = TimeSpan.FromSeconds((double) outFrames / Math.Max(1, src.SampleRate)),
+				SampleTag = src.SampleTag
+			};
+		}
 
-        private static float[] MatchChannels(float[] data, int srcCh, int dstCh)
+		private static float[] MatchChannels(float[] data, int srcCh, int dstCh)
         {
             if (srcCh == dstCh)
             {
@@ -672,7 +672,11 @@ namespace CSharpSamplesCutter.Core
         internal static async Task<double> GetKickDrumScroreAsync(AudioObj audioObj, bool onlyRegardFrequencies = false)
         {
             var f = await ExtractDrumFeaturesAsync(audioObj).ConfigureAwait(false);
-            if (f == null) return 0.0;
+            if (f == null)
+            {
+                return 0.0;
+            }
+
             double low = f.LowEnergy;        // want high
             double high = 1.0 - f.HighEnergy; // want low high band
             double centroid = 1.0 - NormalizeInRange(f.SpectralCentroidHz, 400, 2000); // lower centroid desirable
@@ -686,7 +690,11 @@ namespace CSharpSamplesCutter.Core
         internal static async Task<double> GetSnareDrumScroreAsync(AudioObj audioObj, bool onlyRegardFrequencies = false)
         {
             var f = await ExtractDrumFeaturesAsync(audioObj).ConfigureAwait(false);
-            if (f == null) return 0.0;
+            if (f == null)
+            {
+                return 0.0;
+            }
+
             double mid = f.MidEnergy;           // snare body
             double noise = f.SpectralFlatness;  // noisy upper content
             double high = f.HighEnergy * 0.8;   // some high fizz
@@ -700,7 +708,11 @@ namespace CSharpSamplesCutter.Core
         internal static async Task<double> GetHihatDrumScroreAsync(AudioObj audioObj, bool onlyRegardFrequencies = false)
         {
             var f = await ExtractDrumFeaturesAsync(audioObj).ConfigureAwait(false);
-            if (f == null) return 0.0;
+            if (f == null)
+            {
+                return 0.0;
+            }
+
             double high = f.HighEnergy; // want very high
             double lowPenalty = 1.0 - f.LowEnergy; // want very low low
             double centroid = NormalizeInRange(f.SpectralCentroidHz, 4000, 10000);
@@ -714,7 +726,11 @@ namespace CSharpSamplesCutter.Core
         internal static async Task<double> GetCrashDrumScroreAsync(AudioObj audioObj, bool onlyRegardFrequencies = false)
         {
             var f = await ExtractDrumFeaturesAsync(audioObj).ConfigureAwait(false);
-            if (f == null) return 0.0;
+            if (f == null)
+            {
+                return 0.0;
+            }
+
             double high = f.HighEnergy * 0.9; // strong high
             double centroid = NormalizeInRange(f.SpectralCentroidHz, 3000, 9000);
             double sustain = f.Sustain; // crash has longer sustain
@@ -728,7 +744,11 @@ namespace CSharpSamplesCutter.Core
         internal static async Task<double> GetTomDrumScoreAsync(AudioObj audioObj, bool onlyRegardFrequencies = false)
         {
             var f = await ExtractDrumFeaturesAsync(audioObj).ConfigureAwait(false);
-            if (f == null) return 0.0;
+            if (f == null)
+            {
+                return 0.0;
+            }
+
             double low = f.LowEnergy * 0.6;
             double mid = f.MidEnergy * 0.7; // tom fundamental in mid-low
             double centroid = 1.0 - NormalizeInRange(f.SpectralCentroidHz, 600, 2500); // want lower centroid
@@ -742,7 +762,11 @@ namespace CSharpSamplesCutter.Core
         internal static async Task<double> GetClapDrumScoreAsync(AudioObj audioObj, bool onlyRegardFrequencies = false)
         {
             var f = await ExtractDrumFeaturesAsync(audioObj).ConfigureAwait(false);
-            if (f == null) return 0.0;
+            if (f == null)
+            {
+                return 0.0;
+            }
+
             double mid = f.MidEnergy * 0.6;
             double high = f.HighEnergy * 0.6;
             double noise = f.SpectralFlatness; // clap is noisy
@@ -756,7 +780,11 @@ namespace CSharpSamplesCutter.Core
         internal static async Task<double> GetRideDrumScoreAsync(AudioObj audioObj, bool onlyRegardFrequencies = false)
         {
             var f = await ExtractDrumFeaturesAsync(audioObj).ConfigureAwait(false);
-            if (f == null) return 0.0;
+            if (f == null)
+            {
+                return 0.0;
+            }
+
             double high = f.HighEnergy * 0.7;
             double sustain = f.Sustain * 0.8; // ride sustains
             double decay = f.DecayRatio * 0.7; // longer decay
@@ -770,7 +798,11 @@ namespace CSharpSamplesCutter.Core
         internal static async Task<double> GetPercDrumScoreAsync(AudioObj audioObj, bool onlyRegardFrequencies = false)
         {
             var f = await ExtractDrumFeaturesAsync(audioObj).ConfigureAwait(false);
-            if (f == null) return 0.0;
+            if (f == null)
+            {
+                return 0.0;
+            }
+
             double transient = onlyRegardFrequencies ? 0.5 : f.TransientSharpness;
             double broadband = (f.LowEnergy + f.MidEnergy + f.HighEnergy) / 3.0;
             double shortDecay = 1.0 - f.DecayRatio;
@@ -795,7 +827,10 @@ namespace CSharpSamplesCutter.Core
         {
             try
             {
-                if (audio == null || audio.Data == null || audio.Data.Length == 0 || audio.SampleRate <= 0) return null;
+                if (audio == null || audio.Data == null || audio.Data.Length == 0 || audio.SampleRate <= 0)
+                {
+                    return null;
+                }
                 // Convert to mono (non-destructive)
                 float[] mono = audio.Channels <= 1 ? audio.Data : await Task.Run(() =>
                 {
@@ -804,28 +839,38 @@ namespace CSharpSamplesCutter.Core
                     Parallel.For(0, frames, i =>
                     {
                         double sum = 0.0;
-                        for (int c = 0; c < audio.Channels; c++) sum += audio.Data[i * audio.Channels + c];
-                        m[i] = (float)(sum / audio.Channels);
+                        for (int c = 0; c < audio.Channels; c++)
+                        {
+                            sum += audio.Data[i * audio.Channels + c];
+                        }
+
+                        m[i] = (float) (sum / audio.Channels);
                     });
                     return m;
                 }).ConfigureAwait(false);
 
                 // Normalize amplitude
                 float maxAbs = mono.Max(x => Math.Abs(x));
-                if (maxAbs > 1e-6f) mono = mono.Select(x => x / maxAbs).ToArray();
+                if (maxAbs > 1e-6f)
+                {
+                    mono = mono.Select(x => x / maxAbs).ToArray();
+                }
 
                 int sampleRate = audio.SampleRate;
                 int totalSamples = mono.Length;
                 // Limit length for analysis (e.g., first 2 seconds) to speed up
                 int maxAnalyzeSamples = Math.Min(totalSamples, sampleRate * 2);
-                if (maxAnalyzeSamples < totalSamples) mono = mono.AsSpan(0, maxAnalyzeSamples).ToArray();
+                if (maxAnalyzeSamples < totalSamples)
+                {
+                    mono = mono.AsSpan(0, maxAnalyzeSamples).ToArray();
+                }
 
                 // Envelope & transient metrics
                 var envelope = ComputeEnvelope(mono, sampleRate);
                 double peak = envelope.Max();
                 int peakIndex = Array.IndexOf(envelope, peak);
                 double attackEnergy = envelope.Take(Math.Max(peakIndex, 1)).DefaultIfEmpty(0.0).Average();
-                double tailEnergy = envelope.Skip(Math.Max((int)(envelope.Length * 0.6), 0)).DefaultIfEmpty(0.0).Average();
+                double tailEnergy = envelope.Skip(Math.Max((int) (envelope.Length * 0.6), 0)).DefaultIfEmpty(0.0).Average();
                 double decayRatio = tailEnergy / Math.Max(peak, 1e-9);
                 double sustain = tailEnergy / Math.Max(envelope.Where(e => e > peak * 0.2).DefaultIfEmpty(peak).Average(), 1e-9);
                 double transientSharpness = peak / Math.Max(attackEnergy + 1e-9, 1e-9);
@@ -833,7 +878,11 @@ namespace CSharpSamplesCutter.Core
 
                 // Spectral analysis (averaged FFT magnitude)
                 var spec = await ComputeAverageSpectrumAsync(mono, sampleRate).ConfigureAwait(false);
-                if (spec.Length == 0) return null;
+                if (spec.Length == 0)
+                {
+                    return null;
+                }
+
                 double nyquist = sampleRate / 2.0;
 
                 // Partition bands
@@ -880,12 +929,20 @@ namespace CSharpSamplesCutter.Core
             {
                 double v = Math.Abs(mono[i]);
                 acc += v;
-                if (i >= window) acc -= Math.Abs(mono[i - window]);
+                if (i >= window)
+                {
+                    acc -= Math.Abs(mono[i - window]);
+                }
+
                 env[i] = acc / Math.Min(i + 1, window);
             }
             // simple exponential smoothing
             double alpha = 0.25;
-            for (int i = 1; i < env.Length; i++) env[i] = alpha * env[i] + (1 - alpha) * env[i - 1];
+            for (int i = 1; i < env.Length; i++)
+            {
+                env[i] = alpha * env[i] + (1 - alpha) * env[i - 1];
+            }
+
             return env;
         }
 
@@ -895,8 +952,16 @@ namespace CSharpSamplesCutter.Core
             {
                 int fftSize = ChooseFftSize(sampleRate, mono.Length);
                 int hop = fftSize / 2;
-                if (mono.Length < fftSize) fftSize = mono.Length - (mono.Length % 2);
-                if (fftSize < 256) return Array.Empty<double>();
+                if (mono.Length < fftSize)
+                {
+                    fftSize = mono.Length - (mono.Length % 2);
+                }
+
+                if (fftSize < 256)
+                {
+                    return Array.Empty<double>();
+                }
+
                 double[] window = HannWindow(fftSize);
                 int frames = 1 + Math.Max(0, (mono.Length - fftSize) / hop);
                 double[] accum = new double[fftSize / 2];
@@ -920,11 +985,18 @@ namespace CSharpSamplesCutter.Core
                     }
                     lock (gate)
                     {
-                        for (int k = 1; k < accum.Length; k++) accum[k] += local[k];
+                        for (int k = 1; k < accum.Length; k++)
+                        {
+                            accum[k] += local[k];
+                        }
                     }
                 });
                 // normalize
-                for (int k = 0; k < accum.Length; k++) accum[k] /= Math.Max(1, frames);
+                for (int k = 0; k < accum.Length; k++)
+                {
+                    accum[k] /= Math.Max(1, frames);
+                }
+
                 return accum;
             }).ConfigureAwait(false);
         }
@@ -932,31 +1004,54 @@ namespace CSharpSamplesCutter.Core
         private static int ChooseFftSize(int sampleRate, int length)
         {
             int target = sampleRate <= 32000 ? 4096 : sampleRate <= 48000 ? 8192 : 16384;
-            while (target > length) target >>= 1;
+            while (target > length)
+            {
+                target >>= 1;
+            }
+
             return target < 512 ? 512 : target;
         }
 
         private static double[] HannWindow(int n)
         {
             double[] w = new double[n];
-            for (int i = 0; i < n; i++) w[i] = 0.5 * (1 - Math.Cos(2.0 * Math.PI * i / Math.Max(1, n - 1)));
+            for (int i = 0; i < n; i++)
+            {
+                w[i] = 0.5 * (1 - Math.Cos(2.0 * Math.PI * i / Math.Max(1, n - 1)));
+            }
+
             return w;
         }
 
         private static double NormalizeInRange(double value, double low, double high)
         {
-            if (high <= low) return 0.0;
+            if (high <= low)
+            {
+                return 0.0;
+            }
+
             return Math.Clamp((value - low) / (high - low), 0.0, 1.0);
         }
 
         private static double ClampScore(double raw)
         {
             // Raw combination may exceed; scale approximate max ~100 weighted sum assumptions.
-            if (double.IsNaN(raw) || double.IsInfinity(raw)) return 0.0;
+            if (double.IsNaN(raw) || double.IsInfinity(raw))
+            {
+                return 0.0;
+            }
             // Normalize to 0..100 by dividing by theoretical max weight (approx). If raw already 0..100 skip heavy scaling.
-            if (raw <= 0) return 0.0;
+            if (raw <= 0)
+            {
+                return 0.0;
+            }
+
             double scaled = raw;
-            if (scaled > 100) scaled = 100 - (scaled - 100) * 0.25; // soft clip
+            if (scaled > 100)
+            {
+                scaled = 100 - (scaled - 100) * 0.25; // soft clip
+            }
+
             return Math.Clamp(scaled, 0.0, 100.0);
         }
     }

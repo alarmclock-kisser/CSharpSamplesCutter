@@ -38,6 +38,75 @@ namespace CSharpSamplesCutter.Core
         }
     }
 
+    // ✅ Loop-fähiger Provider: liest von loopStart bis loopEnd, dann zurück zu loopStart
+    internal sealed class LoopingSampleProvider : ISampleProvider
+    {
+        private readonly float[] data;
+        private long position; // in Samples (floats)
+        private long loopStartSample;
+        private long loopEndSample;
+        public WaveFormat WaveFormat { get; }
+
+        public LoopingSampleProvider(float[] data, int sampleRate, int channels, long startSampleIndex = 0, long loopStart = 0, long loopEnd = 0)
+        {
+            this.data = data ?? throw new ArgumentNullException(nameof(data));
+            if (channels <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(channels));
+            }
+
+            if (sampleRate <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(sampleRate));
+            }
+
+            this.WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
+            this.position = Math.Clamp(startSampleIndex, 0, data.LongLength);
+            
+            // ✅ Loop-Grenzen setzen (in Samples/Floats)
+            this.loopStartSample = Math.Clamp(loopStart, 0, data.LongLength);
+            this.loopEndSample = Math.Clamp(loopEnd, 0, data.LongLength);
+            
+            // Wenn loopEnd == 0 oder ungültig: Loop deaktivieren (spielen bis Ende)
+            if (this.loopEndSample <= this.loopStartSample)
+            {
+                this.loopEndSample = data.LongLength;
+            }
+        }
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            int samplesRead = 0;
+
+            while (samplesRead < count)
+            {
+                // Wie viel können wir bis zum Loop-Ende lesen?
+                long samplesUntilLoopEnd = this.loopEndSample - this.position;
+                
+                if (samplesUntilLoopEnd <= 0)
+                {
+                    // ✅ Loop-Ende erreicht: zurück zu Loop-Start
+                    this.position = this.loopStartSample;
+                    samplesUntilLoopEnd = this.loopEndSample - this.position;
+                }
+
+                int samplesToRead = (int) Math.Min(samplesUntilLoopEnd, count - samplesRead);
+                if (samplesToRead <= 0)
+                {
+                    Array.Clear(buffer, offset + samplesRead, count - samplesRead);
+                    return samplesRead;
+                }
+
+                // Kopiere vom Data-Array
+                Array.Copy(this.data, (int) this.position, buffer, offset + samplesRead, samplesToRead);
+                this.position += samplesToRead;
+                samplesRead += samplesToRead;
+            }
+
+            return samplesRead;
+        }
+    }
+
     // Einfacher Provider, der aus einem Float-Array (interleaved) liest
     internal sealed class ArraySampleProvider : ISampleProvider
     {
@@ -138,7 +207,7 @@ namespace CSharpSamplesCutter.Core
             await Task.Run(() => this.player.Play());
         }
 
-        public async Task InitializePlayback(float[] data, int sampleRate, int channels, long startSampleIndex = 0, int? deviceSampleRate = null, int desiredLatency = 50, float initialVolume = 1.0f)
+        public async Task InitializePlayback(float[] data, int sampleRate, int channels, long startSampleIndex = 0, int? deviceSampleRate = null, int desiredLatency = 50, float initialVolume = 1.0f, long loopStartSample = 0, long loopEndSample = 0)
         {
             this.ResetGraph();
 
@@ -149,7 +218,17 @@ namespace CSharpSamplesCutter.Core
             this.Channels = channels;
             this.DeviceSampleRate = deviceSampleRate ?? sampleRate;
 
-            var source = new ArraySampleProvider(data, sampleRate, channels, startSampleIndex);
+            // ✅ Verwende LoopingSampleProvider wenn Loop-Grenzen gesetzt
+            ISampleProvider source;
+            if (loopEndSample > loopStartSample && loopEndSample <= data.LongLength)
+            {
+                source = new LoopingSampleProvider(data, sampleRate, channels, startSampleIndex, loopStartSample, loopEndSample);
+            }
+            else
+            {
+                source = new ArraySampleProvider(data, sampleRate, channels, startSampleIndex);
+            }
+
             var deviceFormat = WaveFormat.CreateIeeeFloatWaveFormat(this.DeviceSampleRate, this.Channels);
 
             this.switching = new SwitchingSampleProvider(deviceFormat);

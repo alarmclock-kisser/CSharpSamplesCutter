@@ -245,6 +245,9 @@ namespace CSharpSamplesCutter.Core
             target.SelectionStart = -1;
             target.SelectionEnd = -1;
             // Position bleibt unverändert
+            
+            // ✅ WICHTIG: PreviousSteps und NextSteps NICHT überschreiben!
+            // Sie sind die Undo/Redo-Stack und müssen auf dem Live-Objekt bleiben
         }
 
         // Playback
@@ -357,7 +360,7 @@ namespace CSharpSamplesCutter.Core
             }
 
             LogCollection.Log($"Merged audio collection to {this.Audios.Count} distinct audios by similarity.");
-		}
+        }
 
 
 

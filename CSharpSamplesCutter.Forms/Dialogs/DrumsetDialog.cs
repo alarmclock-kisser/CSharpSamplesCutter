@@ -50,8 +50,8 @@ namespace CSharpSamplesCutter.Forms.Dialogs
 
         private string smallestNote => this.domainUpDown_smallestNote.SelectedItem?.ToString() ?? "16th"; // WICHTIG: Muss noch geparst werden oder in der DrumEngine geparst werden !!!
 
-		// Selection state for waveform in pictureBox_view
-		private bool isSelecting = false;
+        // Selection state for waveform in pictureBox_view
+        private bool isSelecting = false;
         private long selectionStartFrame = -1; // inclusive
         private long selectionEndFrame = -1;   // exclusive
         private long hoverFrame = -1;
@@ -243,151 +243,151 @@ namespace CSharpSamplesCutter.Forms.Dialogs
             this.DialogResult = DialogResult.Cancel;
         }
 
-		private async void button_process_Click(object? sender, EventArgs e)
-		{
-			if (this.Cts == null || this.Cts.IsCancellationRequested)
-			{
-				this.Cts = new CancellationTokenSource();
-			}
-			var token = this.Cts.Token;
+        private async void button_process_Click(object? sender, EventArgs e)
+        {
+            if (this.Cts == null || this.Cts.IsCancellationRequested)
+            {
+                this.Cts = new CancellationTokenSource();
+            }
+            var token = this.Cts.Token;
 
-			// Progress auf 0 setzen
-			this.progressBar_processing.Value = 0;
-			IProgress<double>? progress = new Progress<double>(p =>
-			{
-				try
-				{
-					double clamped = Math.Clamp(p, 0.0, 1.0);
-					int val = (int) Math.Round(clamped * this.progressBar_processing.Maximum);
-					if (!this.progressBar_processing.IsDisposed)
-					{
-						this.progressBar_processing.Value = Math.Min(this.progressBar_processing.Maximum, Math.Max(this.progressBar_processing.Minimum, val));
-					}
-				}
-				catch { /* ignore */ }
-			});
+            // Progress auf 0 setzen
+            this.progressBar_processing.Value = 0;
+            IProgress<double>? progress = new Progress<double>(p =>
+            {
+                try
+                {
+                    double clamped = Math.Clamp(p, 0.0, 1.0);
+                    int val = (int) Math.Round(clamped * this.progressBar_processing.Maximum);
+                    if (!this.progressBar_processing.IsDisposed)
+                    {
+                        this.progressBar_processing.Value = Math.Min(this.progressBar_processing.Maximum, Math.Max(this.progressBar_processing.Minimum, val));
+                    }
+                }
+                catch { /* ignore */ }
+            });
 
-			try
-			{
-				this.button_process.Enabled = false;
-				this.label_sampleInfo.Text = "Processing…";
+            try
+            {
+                this.button_process.Enabled = false;
+                this.label_sampleInfo.Text = "Processing…";
 
-				// Eingänge: bereits gemappte Drums (AudioC.Audios). Falls leer -> Abbruch.
-				var inputs = this.AudioC.Audios.Where(a => a != null && a.Data != null && a.Data.Length > 0).ToList();
-				if (inputs.Count == 0)
-				{
-					MessageBox.Show("Keine gemappten Drums vorhanden.", "Drum Engine", MessageBoxButtons.OK, MessageBoxIcon.Information);
-					return;
-				}
+                // Eingänge: bereits gemappte Drums (AudioC.Audios). Falls leer -> Abbruch.
+                var inputs = this.AudioC.Audios.Where(a => a != null && a.Data != null && a.Data.Length > 0).ToList();
+                if (inputs.Count == 0)
+                {
+                    MessageBox.Show("Keine gemappten Drums vorhanden.", "Drum Engine", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
 
-				// BPM bestimmen:
-				// Vorrang: bpmOverride > 0, sonst Durchschnitt aus (Bpm > 0 ? Bpm : ScannedBpm) oder Fallback 120
-				float bpm = (float) (
-					this.bpmOverride > 0
-						? this.bpmOverride
-						: inputs
-							.Select(a => a.Bpm > 0 ? a.Bpm : (a.ScannedBpm > 0 ? a.ScannedBpm : 0))
-							.Where(v => v > 40 && v < 300)
-							.DefaultIfEmpty(120)
-							.Average());
+                // BPM bestimmen:
+                // Vorrang: bpmOverride > 0, sonst Durchschnitt aus (Bpm > 0 ? Bpm : ScannedBpm) oder Fallback 120
+                float bpm = (float) (
+                    this.bpmOverride > 0
+                        ? this.bpmOverride
+                        : inputs
+                            .Select(a => a.Bpm > 0 ? a.Bpm : (a.ScannedBpm > 0 ? a.ScannedBpm : 0))
+                            .Where(v => v > 40 && v < 300)
+                            .DefaultIfEmpty(120)
+                            .Average());
 
-				// Ziel-SampleRate / Channels (optionale Normalisierung):
-				// Falls heterogen -> null übergeben (DrumEngine soll übernehmen).
-				int? targetSampleRate = null;
-				int? targetChannels = null;
-				if (inputs.Select(i => i.SampleRate).Distinct().Count() == 1)
-				{
-					targetSampleRate = inputs.First().SampleRate;
-				}
-				if (inputs.Select(i => i.Channels).Distinct().Count() == 1)
-				{
-					targetChannels = inputs.First().Channels;
-				}
+                // Ziel-SampleRate / Channels (optionale Normalisierung):
+                // Falls heterogen -> null übergeben (DrumEngine soll übernehmen).
+                int? targetSampleRate = null;
+                int? targetChannels = null;
+                if (inputs.Select(i => i.SampleRate).Distinct().Count() == 1)
+                {
+                    targetSampleRate = inputs.First().SampleRate;
+                }
+                if (inputs.Select(i => i.Channels).Distinct().Count() == 1)
+                {
+                    targetChannels = inputs.First().Channels;
+                }
 
-				// Kleinste Note direkt verwenden (Dialog-Eigenschaft smallestNote)
-				string smallest = this.smallestNote;
+                // Kleinste Note direkt verwenden (Dialog-Eigenschaft smallestNote)
+                string smallest = this.smallestNote;
 
-				// Optionales Seed erzwingen (Reproduzierbarkeit)
-				int seedLocal = this.seed;
-				this.random.Next(); // kein Muss, nur Konsum
+                // Optionales Seed erzwingen (Reproduzierbarkeit)
+                int seedLocal = this.seed;
+                this.random.Next(); // kein Muss, nur Konsum
 
-				// Aufbereitung: ggf. vorab Time-Stretch aller Roh-Samples (StretchFactor != 1)
-				if (Math.Abs(this.StretchFactor - 1.0) > 0.0001)
-				{
-					int idx = 0;
-					foreach (var s in inputs)
-					{
-						token.ThrowIfCancellationRequested();
-						await TimeStretcher.TimeStretchAllThreadsAsync(s, 8192, 0.5f, this.StretchFactor, false, 1.0f);
-						progress?.Report(0.10 * (++idx / (double) inputs.Count));
-					}
-				}
-				else
-				{
-					progress?.Report(0.05);
-				}
+                // Aufbereitung: ggf. vorab Time-Stretch aller Roh-Samples (StretchFactor != 1)
+                if (Math.Abs(this.StretchFactor - 1.0) > 0.0001)
+                {
+                    int idx = 0;
+                    foreach (var s in inputs)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        await TimeStretcher.TimeStretchAllThreadsAsync(s, 8192, 0.5f, this.StretchFactor, false, 1.0f);
+                        progress?.Report(0.10 * (++idx / (double) inputs.Count));
+                    }
+                }
+                else
+                {
+                    progress?.Report(0.05);
+                }
 
-				// DrumEngine aufrufen
-				var loops = await DrumEngine.GenerateLoopsAsync(
-					inputs,
-					smallestNote: smallest,
-					bpm: bpm,
-					bars: this.BarsCount,
-					count: this.LoopsCount,
-					progress: progress,
-					beatsPerBar: 4,
-					targetSampleRate: targetSampleRate,
-					targetChannels: targetChannels,
-					cancellationToken: token);
+                // DrumEngine aufrufen
+                var loops = await DrumEngine.GenerateLoopsAsync(
+                    inputs,
+                    smallestNote: smallest,
+                    bpm: bpm,
+                    bars: this.BarsCount,
+                    count: this.LoopsCount,
+                    progress: progress,
+                    beatsPerBar: 4,
+                    targetSampleRate: targetSampleRate,
+                    targetChannels: targetChannels,
+                    cancellationToken: token);
 
-				token.ThrowIfCancellationRequested();
+                token.ThrowIfCancellationRequested();
 
-				// Optional: Normalisieren auf targetPeak (falls > 0 und < 1)
-				if (this.targetPeak > 0.0f && this.targetPeak <= 1.0f)
-				{
-					int i = 0;
-					foreach (var loop in loops)
-					{
-						token.ThrowIfCancellationRequested();
-						if (loop.Data != null && loop.Data.Length > 0)
-						{
-							float maxAbs = loop.Data.Max(v => Math.Abs(v));
-							if (maxAbs > 0.00001f)
-							{
-								float factor = this.targetPeak / maxAbs;
-								for (int s = 0; s < loop.Data.Length; s++)
-								{
-									loop.Data[s] *= factor;
-								}
-							}
-						}
-						progress?.Report(0.80 + 0.15 * (i++ / (double) Math.Max(1, loops.Count)));
-					}
-				}
+                // Optional: Normalisieren auf targetPeak (falls > 0 und < 1)
+                if (this.targetPeak > 0.0f && this.targetPeak <= 1.0f)
+                {
+                    int i = 0;
+                    foreach (var loop in loops)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        if (loop.Data != null && loop.Data.Length > 0)
+                        {
+                            float maxAbs = loop.Data.Max(v => Math.Abs(v));
+                            if (maxAbs > 0.00001f)
+                            {
+                                float factor = this.targetPeak / maxAbs;
+                                for (int s = 0; s < loop.Data.Length; s++)
+                                {
+                                    loop.Data[s] *= factor;
+                                }
+                            }
+                        }
+                        progress?.Report(0.80 + 0.15 * (i++ / (double) Math.Max(1, loops.Count)));
+                    }
+                }
 
-				this.ResultSamples = loops;
-				this.DialogResult = DialogResult.OK;
-				this.label_sampleInfo.Text = $"Fertig ({loops.Count} Loops).";
-				progress?.Report(1.0);
-			}
-			catch (OperationCanceledException)
-			{
-				this.label_sampleInfo.Text = "Abgebrochen.";
-				this.DialogResult = DialogResult.Cancel;
-			}
-			catch (Exception ex)
-			{
-				this.label_sampleInfo.Text = $"Fehler: {ex.Message}";
-				LogCollection.Log(ex);
-				this.DialogResult = DialogResult.Abort;
-			}
-			finally
-			{
-				this.button_process.Enabled = true;
-			}
-		}
+                this.ResultSamples = loops;
+                this.DialogResult = DialogResult.OK;
+                this.label_sampleInfo.Text = $"Fertig ({loops.Count} Loops).";
+                progress?.Report(1.0);
+            }
+            catch (OperationCanceledException)
+            {
+                this.label_sampleInfo.Text = "Abgebrochen.";
+                this.DialogResult = DialogResult.Cancel;
+            }
+            catch (Exception ex)
+            {
+                this.label_sampleInfo.Text = $"Fehler: {ex.Message}";
+                LogCollection.Log(ex);
+                this.DialogResult = DialogResult.Abort;
+            }
+            finally
+            {
+                this.button_process.Enabled = true;
+            }
+        }
 
-		private void button_addDrum_Click(object? sender, EventArgs e)
+        private void button_addDrum_Click(object? sender, EventArgs e)
         {
             if (!string.IsNullOrWhiteSpace(this.textBox_drumTag.Text))
             {
@@ -627,7 +627,7 @@ namespace CSharpSamplesCutter.Forms.Dialogs
                     var s = this.SelectedDrum;
                     if (s != null && this.selectionStartFrame >= 0 && this.selectionEndFrame > this.selectionStartFrame)
                     {
-                        _ = this.EraseSelectionAsync(s);
+                        _ = this.EraseSelectionWithSnapshotAsync(s);
                         e.Handled = true;
                     }
                 }
@@ -638,10 +638,13 @@ namespace CSharpSamplesCutter.Forms.Dialogs
             }
         }
 
-        private async Task EraseSelectionAsync(AudioObj s)
+        private async Task EraseSelectionWithSnapshotAsync(AudioObj s)
         {
             try
             {
+                // Snapshot BEFORE mutation
+                await this.AudioC.PushSnapshotAsync(s.Id);
+
                 long start = this.selectionStartFrame;
                 long end = this.selectionEndFrame;
                 long total = GetTotalFrames(s);
@@ -709,7 +712,8 @@ namespace CSharpSamplesCutter.Forms.Dialogs
         {
             if (e.Control && e.KeyCode == Keys.Z)
             {
-                var track = this.SelectedSample;
+                // Versuche zuerst das aktuell ausgewählte Sample (aus SelectedSample oder SelectedDrum)
+                AudioObj? track = this.SelectedSample ?? this.SelectedDrum;
                 if (track == null)
                 {
                     return;
@@ -722,8 +726,15 @@ namespace CSharpSamplesCutter.Forms.Dialogs
                     return;
                 }
 
+                // Refresh beide ListBoxen
                 this.listBox_drumSet.Refresh();
+                this.listBox_samples.Refresh();
+                
+                // Re-render waveform wenn das aktuell sichtbare Sample geändert wurde
+                await this.RenderSelectedDrumAsync();
+                
                 LogCollection.Log($"Undo applied on track: {track.Name}");
+                e.Handled = true;
             }
         }
 
@@ -731,7 +742,8 @@ namespace CSharpSamplesCutter.Forms.Dialogs
         {
             if (e.Control && e.KeyCode == Keys.Y)
             {
-                var track = this.SelectedSample;
+                // Versuche zuerst das aktuell ausgewählte Sample (aus SelectedSample oder SelectedDrum)
+                AudioObj? track = this.SelectedSample ?? this.SelectedDrum;
                 if (track == null)
                 {
                     return;
@@ -744,8 +756,15 @@ namespace CSharpSamplesCutter.Forms.Dialogs
                     return;
                 }
 
+                // Refresh beide ListBoxen
                 this.listBox_drumSet.Refresh();
+                this.listBox_samples.Refresh();
+                
+                // Re-render waveform wenn das aktuell sichtbare Sample geändert wurde
+                await this.RenderSelectedDrumAsync();
+                
                 LogCollection.Log($"Redo applied on track: {track.Name}");
+                e.Handled = true;
             }
         }
 

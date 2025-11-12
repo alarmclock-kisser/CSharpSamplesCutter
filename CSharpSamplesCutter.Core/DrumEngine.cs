@@ -120,7 +120,7 @@ public static class DrumEngine
                 Channels = decidedChannels,
                 BitDepth = sizeof(float) * 8,
                 Length = rendered.LongLength,
-                Duration = TimeSpan.FromSeconds((double)rendered.LongLength / (decidedChannels * decidedSampleRate)),
+                Duration = TimeSpan.FromSeconds((double) rendered.LongLength / (decidedChannels * decidedSampleRate)),
                 Volume = 1.0f,
                 SampleTag = "Loop"
             };
@@ -209,7 +209,7 @@ public static class DrumEngine
             SecondsPerBeat = spb,
             StepsPerBeat = stepsPerBeat,
             SamplesPerStepExact = samplesPerStep,
-            SamplesPerStepFloor = (int)Math.Floor(samplesPerStep),
+            SamplesPerStepFloor = (int) Math.Floor(samplesPerStep),
             IsTriplet = isTriplet,
             IsSwing = isSwing,
             SwingRatio = 0.57
@@ -275,7 +275,7 @@ public static class DrumEngine
 
                 // 3) heuristics for "compatible duration" in steps
                 int suggestedSteps = SuggestStepsForTag(tag, grid);
-                long targetFrames = (long)Math.Max(grid.SamplesPerStepFloor * suggestedSteps, 1);
+                long targetFrames = (long) Math.Max(grid.SamplesPerStepFloor * suggestedSteps, 1);
                 long currentFrames = trimmed.LongLength / targetChannels;
                 long fullFrames = Math.Min(currentFrames, targetFrames);
 
@@ -384,7 +384,7 @@ public static class DrumEngine
         }
 
         ch = Math.Max(1, ch);
-        float thr = (float)Math.Pow(10.0, thresholdDb / 20.0);
+        float thr = (float) Math.Pow(10.0, thresholdDb / 20.0);
 
         long frames = interleaved.LongLength / ch;
         long start = 0;
@@ -504,14 +504,14 @@ public static class DrumEngine
         }
 
         long srcFrames = data.LongLength / ch;
-        double ratio = (double)dstSr / srcSr;
-        long dstFrames = (long)Math.Max(1, Math.Floor(srcFrames * ratio));
+        double ratio = (double) dstSr / srcSr;
+        long dstFrames = (long) Math.Max(1, Math.Floor(srcFrames * ratio));
         var dst = new float[dstFrames * ch];
 
         for (long f = 0; f < dstFrames; f++)
         {
             double srcPos = f / ratio; // frame position in source
-            long i = (long)Math.Floor(srcPos);
+            long i = (long) Math.Floor(srcPos);
             double frac = srcPos - i;
             long i2 = Math.Min(i + 1, srcFrames - 1);
 
@@ -519,7 +519,7 @@ public static class DrumEngine
             {
                 float a = data[i * ch + c];
                 float b = data[i2 * ch + c];
-                dst[f * ch + c] = (float)(a + (b - a) * frac);
+                dst[f * ch + c] = (float) (a + (b - a) * frac);
             }
         }
 
@@ -538,7 +538,7 @@ public static class DrumEngine
         long stepsPerBar = grid.StepsPerBeat * grid.BeatsPerBar;
         long totalSteps = stepsPerBar * bars;
 
-        var events = new List<ScheduledEvent>(capacity: (int)(totalSteps * 3));
+        var events = new List<ScheduledEvent>(capacity: (int) (totalSteps * 3));
 
         bool hasKick = bank.TryGetValue("Kick", out var kicks) && kicks.Count > 0;
         bool hasSnare = bank.TryGetValue("Snare", out var snares) && snares.Count > 0;
@@ -563,7 +563,7 @@ public static class DrumEngine
 
                 // Optional Clap layer on 2 & 4
                 if (hasClap && rnd.Prob(0.5) && claps != null)
-				{
+                {
                     events.Add(MakeEvent(claps, rnd, StepToSample(s2, grid), 0.85f));
                     events.Add(MakeEvent(claps, rnd, StepToSample(s4, grid), 0.85f));
                 }
@@ -572,7 +572,7 @@ public static class DrumEngine
 
         // Kicks: sensible Startpunkte + DnB-typische Offbeats
         if (hasKick && kicks != null)
-		{
+        {
             for (int b = 0; b < bars; b++)
             {
                 long barStart = b * stepsPerBar;
@@ -599,11 +599,11 @@ public static class DrumEngine
 
         // Closed hats: straight 1/8 oder 1/16 je nach grid, leichte Velocity‑Variation
         if (hasCH && chh != null)
-		{
+        {
             int hatEvery = grid.StepsPerBeat >= 4 ? 1 : 2; // auf 1/16 grid: jede Stufe; auf 1/8 grid: jede Stufe
             for (long st = 0; st < totalSteps; st += hatEvery)
             {
-                float vel = 0.6f + (float)((rnd.NextDouble() - 0.5) * 0.2); // +/-0.1
+                float vel = 0.6f + (float) ((rnd.NextDouble() - 0.5) * 0.2); // +/-0.1
                 events.Add(MakeEvent(chh, rnd, StepToSample(st, grid), vel));
             }
 
@@ -619,7 +619,7 @@ public static class DrumEngine
 
         // Open hats / rides on offbeats
         if (hasOH || hasRide || rides != null || ohh != null)
-		{
+        {
             for (int b = 0; b < bars; b++)
             {
                 long barStart = b * stepsPerBar;
@@ -665,7 +665,7 @@ public static class DrumEngine
 
                 long barStart = b * stepsPerBar;
                 long fillStart = barStart + grid.StepsPerBeat * 3; // letzte Zählzeit
-                int fillLenSteps = (int)Math.Min(4, stepsPerBar - (fillStart - barStart));
+                int fillLenSteps = (int) Math.Min(4, stepsPerBar - (fillStart - barStart));
 
                 for (int i = 0; i < fillLenSteps; i++)
                 {
@@ -715,7 +715,7 @@ public static class DrumEngine
         if (grid.IsSwing && grid.StepsPerBeat >= 2)
         {
             long beatIndex = step / grid.StepsPerBeat;
-            int posInBeat = (int)(step - beatIndex * grid.StepsPerBeat);
+            int posInBeat = (int) (step - beatIndex * grid.StepsPerBeat);
             bool isOff = (posInBeat % 2) == 1;
             double baseSamples = step * grid.SamplesPerStepExact;
             if (isOff)
@@ -723,11 +723,11 @@ public static class DrumEngine
                 double early = grid.SamplesPerStepExact * (1.0 - grid.SwingRatio);
                 double late = grid.SamplesPerStepExact * (grid.SwingRatio);
                 // shift by + (late - early)/2 to emulate swing-feel
-                return (long)Math.Round(baseSamples + (late - early) * 0.5);
+                return (long) Math.Round(baseSamples + (late - early) * 0.5);
             }
-            return (long)Math.Round(baseSamples);
+            return (long) Math.Round(baseSamples);
         }
-        return (long)Math.Round(step * grid.SamplesPerStepExact);
+        return (long) Math.Round(step * grid.SamplesPerStepExact);
     }
 
     private static ScheduledEvent MakeEvent(List<SampleVariant> variants, ThreadSafeRandom rnd, long startSample, float velocity)
@@ -764,7 +764,7 @@ public static class DrumEngine
     {
         long stepsPerBar = grid.StepsPerBeat * grid.BeatsPerBar;
         long totalSteps = stepsPerBar * bars;
-        long totalFrames = (long)Math.Ceiling(totalSteps * grid.SamplesPerStepExact);
+        long totalFrames = (long) Math.Ceiling(totalSteps * grid.SamplesPerStepExact);
 
         var mix = new float[totalFrames * channels];
 
@@ -852,17 +852,23 @@ public static class DrumEngine
     {
         private readonly object _lock = new();
         private readonly Random _rnd = new(Random.Shared.Next());
-        public int Next() { lock (this._lock)
+        public int Next()
+        {
+            lock (this._lock)
             {
                 return this._rnd.Next();
             }
         }
-        public int Next(int max) { lock (this._lock)
+        public int Next(int max)
+        {
+            lock (this._lock)
             {
                 return this._rnd.Next(max);
             }
         }
-        public double NextDouble() { lock (this._lock)
+        public double NextDouble()
+        {
+            lock (this._lock)
             {
                 return this._rnd.NextDouble();
             }
@@ -870,7 +876,7 @@ public static class DrumEngine
         public bool Prob(double p) => NextDouble() < p;
         public float Range(float a, float b)
         {
-            var t = (float)NextDouble();
+            var t = (float) NextDouble();
             return a + (b - a) * t;
         }
     }

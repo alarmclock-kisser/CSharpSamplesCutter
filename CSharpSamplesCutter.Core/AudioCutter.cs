@@ -735,7 +735,14 @@ namespace CSharpSamplesCutter.Core
                     {
                         float d1 = Math.Abs(v - c1);
                         float d2 = Math.Abs(v - c2);
-                        if (d1 <= d2) g1.Add(v); else g2.Add(v);
+                        if (d1 <= d2)
+                        {
+                            g1.Add(v);
+                        }
+                        else
+                        {
+                            g2.Add(v);
+                        }
                     }
                     c1 = g1.Count > 0 ? g1.Average() : c1;
                     c2 = g2.Count > 0 ? g2.Average() : c2;
@@ -758,7 +765,11 @@ namespace CSharpSamplesCutter.Core
 
             foreach (var node in adjacency.Keys)
             {
-                if (visited.Contains(node)) continue;
+                if (visited.Contains(node))
+                {
+                    continue;
+                }
+
                 var comp = new List<Guid>();
                 var q = new Queue<Guid>();
                 q.Enqueue(node);
@@ -808,7 +819,10 @@ namespace CSharpSamplesCutter.Core
 
         private static async Task<AudioObj?> TryMixClusterAsync(List<AudioObj> members)
         {
-            if (members == null || members.Count == 0) return null;
+            if (members == null || members.Count == 0)
+            {
+                return null;
+            }
             // Mix only if sample rate and channels match across members
             int sr = members[0].SampleRate;
             int ch = members[0].Channels;
@@ -819,7 +833,10 @@ namespace CSharpSamplesCutter.Core
 
             // Determine max length (interleaved samples)
             long maxLen = members.Max(m => m.Data?.LongLength ?? 0L);
-            if (maxLen <= 0) return null;
+            if (maxLen <= 0)
+            {
+                return null;
+            }
 
             float[] mixed = new float[maxLen];
             int count = members.Count;
@@ -858,7 +875,10 @@ namespace CSharpSamplesCutter.Core
             if (maxAbs > 1.0f && maxAbs < 1000f)
             {
                 float scale = 1.0f / maxAbs;
-                for (int i = 0; i < mixed.Length; i++) mixed[i] *= scale;
+                for (int i = 0; i < mixed.Length; i++)
+                {
+                    mixed[i] *= scale;
+                }
             }
 
             // Build new AudioObj
