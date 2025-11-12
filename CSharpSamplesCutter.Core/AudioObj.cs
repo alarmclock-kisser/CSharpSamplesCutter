@@ -934,6 +934,7 @@ namespace CSharpSamplesCutter.Core
         }
 
         // Processing (basic) Methods
+
         public async Task NormalizeAsync(float maxAmplitude = 1.0f, int maxWorkers = 4)
         {
             maxWorkers = Math.Clamp(maxWorkers, 1, Environment.ProcessorCount);
@@ -943,21 +944,45 @@ namespace CSharpSamplesCutter.Core
                 return;
             }
 
-            var parallelOptions = new ParallelOptions
+            // ---- Auswahlbereich bestimmen (in Sample-Indizes in this.Data) ----
+            var (selStart, selEnd, hasSelection) = GetSelectionSampleSpan();
+
+            // Wenn keine Auswahl, dann global
+            long startIdx = hasSelection ? selStart : 0;
+            long endIdx = hasSelection ? selEnd : this.Data.LongLength;
+
+            if (endIdx <= startIdx)
             {
-                MaxDegreeOfParallelism = maxWorkers
-            };
+                return;
+            }
+
+            var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = maxWorkers };
 
             Stopwatch sw = Stopwatch.StartNew();
 
-            // Phase 1: Find global maximum (parallel + async)
+            // Phase 1: max in [startIdx, endIdx)
             float globalMax = await Task.Run(() =>
             {
                 float max = 0f;
-                Parallel.For(0, this.Data.Length, parallelOptions,
+                object lockObj = new object();
+
+                Parallel.For((long)startIdx, (long)endIdx, parallelOptions,
                     () => 0f,
-                    (i, _, localMax) => Math.Max(Math.Abs(this.Data[i]), localMax),
-                    localMax => { lock (this) { max = Math.Max(max, localMax); } }
+                    (i, state, localMax) =>
+                    {
+                        float v = Math.Abs(this.Data[i]);
+                        return v > localMax ? v : localMax;
+                    },
+                    localMax =>
+                    {
+                        lock (lockObj)
+                        {
+                            if (localMax > max)
+                            {
+                                max = localMax;
+                            }
+                        }
+                    }
                 );
                 return max;
             }).ConfigureAwait(false);
@@ -967,11 +992,11 @@ namespace CSharpSamplesCutter.Core
                 return;
             }
 
-            // Phase 2: Apply scaling (parallel + async)
+            // Phase 2: nur Auswahl skalieren
             float scale = maxAmplitude / globalMax;
             await Task.Run(() =>
             {
-                Parallel.For(0, this.Data.Length, parallelOptions, i =>
+                Parallel.For((long)startIdx, (long)endIdx, parallelOptions, i =>
                 {
                     this.Data[i] *= scale;
                 });
@@ -990,22 +1015,41 @@ namespace CSharpSamplesCutter.Core
 
             maxWorkers = Math.Clamp(maxWorkers, 1, Environment.ProcessorCount);
 
-            int blockSize = (int) (this.SampleRate * this.Channels * 0.01); // 10ms pro Block
-            if (blockSize <= 0)
+            // ---- Auswahlbereich bestimmen (in Sample-Indizes in this.Data) ----
+            var (selStart, selEnd, hasSelection) = GetSelectionSampleSpan();
+
+            // Wir arbeiten nur auf der Auswahl; ohne Auswahl => gesamtes Array
+            long workStart = hasSelection ? selStart : 0;
+            long workEnd = hasSelection ? selEnd : this.Data.LongLength;
+
+            if (workEnd <= workStart)
             {
-                blockSize = this.Channels;
+                return (workStart, workStart);
             }
 
-            int numBlocks = (int) Math.Ceiling((double) this.Data.Length / blockSize);
+            // Blockgröße (≈10ms): in SAMPLES (interleaved)
+            int blockSize = (int)(this.SampleRate * this.Channels * 0.01); // 10ms pro Block
+            if (blockSize <= 0)
+            {
+                blockSize = Math.Max(1, this.Channels);
+            }
+
+            long workLen = workEnd - workStart;
+            int numBlocks = (int)Math.Ceiling((double)workLen / blockSize);
+            if (numBlocks <= 0)
+            {
+                return (workStart, workEnd);
+            }
+
             float[] rmsBlocks = new float[numBlocks];
 
-            // Phase 1: RMS pro Block berechnen
+            // Phase 1: RMS pro Block (nur im Auswahlfenster)
             await Task.Run(() =>
             {
-                Parallel.For(0, numBlocks, new ParallelOptions { MaxDegreeOfParallelism = maxWorkers }, i =>
+                Parallel.For(0, numBlocks, new ParallelOptions { MaxDegreeOfParallelism = maxWorkers }, bi =>
                 {
-                    long start = (long) i * blockSize;
-                    long end = Math.Min(start + blockSize, this.Data.LongLength);
+                    long start = workStart + (long)bi * blockSize;
+                    long end = Math.Min(start + blockSize, workEnd);
 
                     double sumOfSquares = 0.0;
                     long count = end - start;
@@ -1015,24 +1059,23 @@ namespace CSharpSamplesCutter.Core
                         sumOfSquares += this.Data[s] * this.Data[s];
                     }
 
-                    rmsBlocks[i] = count > 0 ? (float) Math.Sqrt(sumOfSquares / count) : 0.0f;
+                    rmsBlocks[bi] = count > 0 ? (float)Math.Sqrt(sumOfSquares / count) : 0.0f;
                 });
             }).ConfigureAwait(false);
 
             if (!rmsBlocks.Any())
             {
-                return (0, this.Data.LongLength);
+                return (workStart, workEnd);
             }
 
-            // Phase 2: Schwellenwert automatisch bestimmen, falls nicht gegeben
+            // Phase 2: Threshold (relativ zum max in Auswahl)
             float maxRms = rmsBlocks.Max();
-            float finalThreshold = threshold ?? (maxRms * 0.01f); // 1% vom Max als Auto-Threshold
+            float finalThreshold = threshold ?? (maxRms * 0.01f); // 1% vom Max
 
-            // Phase 3: Falls keine minSilenceMs angegeben ist, automatisch bestimmen
+            // Phase 3: minSilenceMs heuristisch, falls nicht gesetzt
             if (minSilenceMs == null)
             {
-                // Länge jedes "stillen" Abschnitts (in Blöcken)
-                List<int> silentDurations = [];
+                List<int> silentDurations = new();
 
                 int currentSilent = 0;
                 foreach (float rms in rmsBlocks)
@@ -1054,63 +1097,61 @@ namespace CSharpSamplesCutter.Core
 
                 if (silentDurations.Count == 0)
                 {
-                    minSilenceMs = 50; // default fallback
+                    minSilenceMs = 50; // fallback
                 }
                 else
                 {
-                    // Wir nehmen den Median der oberen 10% längsten stillen Abschnitte
                     var ordered = silentDurations.OrderBy(x => x).ToArray();
-                    int takeCount = Math.Max(1, (int) (ordered.Length * 0.1));
-                    float avgTop = (float) (ordered.Skip(Math.Max(0, ordered.Length - takeCount)).Average());
+                    int takeCount = Math.Max(1, (int)(ordered.Length * 0.1));
+                    double avgTop = ordered.Skip(Math.Max(0, ordered.Length - takeCount)).Average();
 
-                    // Blockgröße in ms umrechnen
-                    double blockDurationMs = (1000.0 * blockSize / (this.SampleRate * this.Channels));
-                    minSilenceMs = (int) Math.Clamp(avgTop * blockDurationMs, 20, 1000);
+                    double blockDurationMs = (1000.0 * blockSize) / (this.SampleRate * this.Channels);
+                    minSilenceMs = (int)Math.Clamp(avgTop * blockDurationMs, 20, 1000);
                 }
             }
 
-            // minSilenceMs ist jetzt sicher gesetzt
+            // minSilenceMs -> Blöcke
             double blockMs = 1000.0 * blockSize / (this.SampleRate * this.Channels);
-            int minSilentBlocks = Math.Max(1, (int) Math.Ceiling(minSilenceMs.Value / blockMs));
+            int minSilentBlocks = Math.Max(1, (int)Math.Ceiling(minSilenceMs.Value / blockMs));
 
-            // Phase 4: Start und Ende suchen, aber nur nach ausreichender Stille
+            // Phase 4: Start/Ende im Blockraum (nur Auswahl)
             int startBlock = 0;
             int endBlock = rmsBlocks.Length - 1;
 
-            // Start: finde erstes lautes Segment nach längerer Stille
+            // Start: erstes nicht-stilles Segment nach ausreichender Stille
             for (int i = 0; i < rmsBlocks.Length - minSilentBlocks; i++)
             {
-                bool isSilent = true;
+                bool isSilentRun = true;
                 for (int j = 0; j < minSilentBlocks; j++)
                 {
                     if (rmsBlocks[i + j] > finalThreshold)
                     {
-                        isSilent = false;
+                        isSilentRun = false;
                         break;
                     }
                 }
 
-                if (!isSilent)
+                if (!isSilentRun)
                 {
                     startBlock = Math.Max(0, i - minSilentBlocks);
                     break;
                 }
             }
 
-            // Ende: finde letztes lautes Segment vor längerer Stille
+            // Ende: letztes nicht-stilles Segment vor längerer Stille
             for (int i = rmsBlocks.Length - 1; i >= minSilentBlocks; i--)
             {
-                bool isSilent = true;
+                bool isSilentRun = true;
                 for (int j = 0; j < minSilentBlocks; j++)
                 {
                     if (rmsBlocks[i - j] > finalThreshold)
                     {
-                        isSilent = false;
+                        isSilentRun = false;
                         break;
                     }
                 }
 
-                if (!isSilent)
+                if (!isSilentRun)
                 {
                     endBlock = Math.Min(rmsBlocks.Length - 1, i + minSilentBlocks);
                     break;
@@ -1119,15 +1160,19 @@ namespace CSharpSamplesCutter.Core
 
             if (endBlock <= startBlock)
             {
-                return (0, this.Data.LongLength);
+                return (workStart, workEnd);
             }
 
-            // Ergebnis in Sample-Indizes umrechnen
-            long startIndex = (long) startBlock * blockSize;
-            long endIndex = Math.Min((long) (endBlock + 1) * blockSize, this.Data.LongLength);
+            // Zurück in Sample-Indizes — innerhalb der Auswahl
+            long startIndex = workStart + (long)startBlock * blockSize;
+            long endIndex = workStart + Math.Min((long)(endBlock + 1) * blockSize, workLen);
+
+            startIndex = Math.Clamp(startIndex, workStart, workEnd);
+            endIndex = Math.Clamp(endIndex, workStart, workEnd);
 
             return (startIndex, endIndex);
         }
+
 
         public async Task FadeInAsync(long? selectionStart = null, long? selectionEnd = null, bool logarithmic = false, float fadeLowAmplitude = 0.0f, int maxWorkers = 4)
         {
@@ -1400,250 +1445,200 @@ namespace CSharpSamplesCutter.Core
             }
         }
 
-        [SupportedOSPlatform("windows")]
-        public async Task<Bitmap> DrawWaveformAsync(int width, int height, int samplesPerPixel = 128, bool drawEachChannel = false, int caretWidth = 1, long? offset = null, Color? waveColor = null, Color? backColor = null, Color? caretColor = null, Color? selectionColor = null, bool smoothen = false, double timingMarkersInterval = 0, float caretPosition = 0.0f, int maxWorkers = 2)
-        {
-            maxWorkers = Math.Clamp(maxWorkers, 1, Environment.ProcessorCount);
-            waveColor ??= Color.Black;
-            backColor ??= Color.White;
-            caretColor ??= Color.Red;
-            selectionColor ??= Color.FromArgb(64, waveColor.Value);
+		[SupportedOSPlatform("windows")]
+		public async Task<Bitmap> DrawWaveformAsync(int width, int height, int samplesPerPixel = 128, bool drawEachChannel = false, int caretWidth = 1, long? offset = null, Color? waveColor = null, Color? backColor = null, Color? caretColor = null, Color? selectionColor = null, bool smoothen = false, double timingMarkersInterval = 0, float caretPosition = 0.0f, int maxWorkers = 2)
+		{
+			maxWorkers = Math.Clamp(maxWorkers, 1, Environment.ProcessorCount);
+			waveColor ??= Color.Black;
+			backColor ??= Color.White;
+			caretColor ??= Color.Red;
+			selectionColor ??= Color.FromArgb(64, waveColor.Value);
 
-            width = Math.Max(1, width);
-            height = Math.Max(1, height);
-            samplesPerPixel = samplesPerPixel <= 0 ? this.CalculateSamplesPerPixelToFit(width) : samplesPerPixel;
-            caretWidth = Math.Clamp(caretWidth, 0, width);
+			width = Math.Max(1, width);
+			height = Math.Max(1, height);
+			samplesPerPixel = samplesPerPixel <= 0 ? this.CalculateSamplesPerPixelToFit(width) : samplesPerPixel;
+			caretWidth = Math.Clamp(caretWidth, 0, width);
 
-            long totalFrames = Math.Max(1, this.Length / Math.Max(1, this.Channels));
-            long viewFrames = (long) width * samplesPerPixel;
+			long totalFrames = Math.Max(1, this.Length / Math.Max(1, this.Channels));
+			long viewFrames = (long) width * samplesPerPixel;
 
-            // --- Caret Position & Lookahead ---
-            long caretFrame = this.Position > 0 ? this.Position : this.StartingOffset / Math.Max(1, this.Channels);
-            caretPosition = Math.Clamp(caretPosition, 0f, 1f);
-            long caretInViewFrames = (long) (viewFrames * caretPosition);
-            long newOffset = caretFrame - caretInViewFrames;
-            long maxOffset = Math.Max(0, totalFrames - viewFrames);
-            offset = Math.Clamp(newOffset, 0, maxOffset);
+			// Caret + View-Start bestimmen
+			long caretFrame = this.Position > 0 ? this.Position : this.StartingOffset / Math.Max(1, this.Channels);
+			caretPosition = Math.Clamp(caretPosition, 0f, 1f);
+			long caretInViewFrames = (long) Math.Round(viewFrames * caretPosition);
+			long maxOffset = Math.Max(0, totalFrames - viewFrames);
 
-            var bitmap = new Bitmap(width, height);
+			// WICHTIG: offset strikt respektieren; nur bei null rezentrieren
+			long viewStartFrames = offset.HasValue
+				? Math.Clamp(offset.Value, 0, maxOffset)
+				: Math.Clamp(caretFrame - caretInViewFrames, 0, maxOffset);
 
-            int channelsToDraw = drawEachChannel ? this.Channels : 1;
-            // HINWEIS: Ich habe dies zu (int yTop, int yBottom) umbenannt, um die Lesbarkeit zu verbessern
-            var minMaxPerChannel = new (int yTop, int yBottom)[channelsToDraw][];
-            for (int c = 0; c < channelsToDraw; c++)
-            {
-                minMaxPerChannel[c] = new (int, int)[width];
-            }
+			var bitmap = new Bitmap(width, height);
 
-            // --- Min/Max Berechnung parallel (OPTIMIERUNG 1) ---
-            await Task.Run(() =>
-            {
-                var po = new ParallelOptions { MaxDegreeOfParallelism = maxWorkers };
-                int blockSize = 64; // Blockgröße für Parallel.For
+			int channelsToDraw = drawEachChannel ? this.Channels : 1;
+			var minMaxPerChannel = new (int yTop, int yBottom)[channelsToDraw][];
+			for (int c = 0; c < channelsToDraw; c++)
+			{
+				minMaxPerChannel[c] = new (int, int)[width];
+			}
 
-                // Geringeres Budget für schnellere Übersicht (z.B. 512 statt 2048)
-                // Dies erhöht 'stride' bei hohen samplesPerPixel-Werten drastisch
-                const int targetSamplesPerPixelBudget = 512;
-                int stride = Math.Max(1, (int) Math.Ceiling((double) samplesPerPixel / targetSamplesPerPixelBudget));
+			await Task.Run(() =>
+			{
+				var po = new ParallelOptions { MaxDegreeOfParallelism = maxWorkers };
+				int blockSize = 64;
 
-                var data = this.Data!;
-                long dataLength = data.LongLength;
-                int channels = this.Channels;
+				const int targetSamplesPerPixelBudget = 512;
+				int stride = Math.Max(1, (int) Math.Ceiling((double) samplesPerPixel / targetSamplesPerPixelBudget));
 
-                Parallel.For(0, (width + blockSize - 1) / blockSize, po, blockIndex =>
-                {
-                    int xStart = blockIndex * blockSize;
-                    int xEnd = Math.Min(width, xStart + blockSize);
+				var data = this.Data!;
+				long dataLength = data.LongLength;
+				int channels = this.Channels;
 
-                    for (int x = xStart; x < xEnd; x++)
-                    {
-                        long sampleStart = offset.Value * channels + x * samplesPerPixel * channels;
+				Parallel.For(0, (width + blockSize - 1) / blockSize, po, blockIndex =>
+				{
+					int xStart = blockIndex * blockSize;
+					int xEnd = Math.Min(width, xStart + blockSize);
 
-                        for (int ch = 0; ch < channelsToDraw; ch++)
-                        {
-                            float min = float.MaxValue;
-                            float max = float.MinValue;
+					for (int x = xStart; x < xEnd; x++)
+					{
+						long sampleStart = viewStartFrames * channels + (long) x * samplesPerPixel * channels;
 
-                            long sampleEnd = Math.Min(sampleStart + samplesPerPixel * channels, dataLength);
+						for (int ch = 0; ch < channelsToDraw; ch++)
+						{
+							float min = float.MaxValue;
+							float max = float.MinValue;
 
-                            // Diese Schleife ist der Engpass.
-                            // Wir berechnen hier NUR die rohen Min/Max-Werte.
-                            for (long idx = sampleStart + ch; idx < sampleEnd; idx += channels * stride)
-                            {
-                                float val = data[idx];
-                                if (val < min)
-                                {
-                                    min = val;
-                                }
+							long sampleEnd = Math.Min(sampleStart + (long) samplesPerPixel * channels, dataLength);
 
-                                if (val > max)
-                                {
-                                    max = val;
-                                }
-                            }
+							for (long idx = sampleStart + ch; idx < sampleEnd; idx += channels * stride)
+							{
+								float val = data[idx];
+								if (val < min) min = val;
+								if (val > max) max = val;
+							}
 
-                            if (min == float.MaxValue)
-                            {
-                                min = 0f;
-                            }
+							if (min == float.MaxValue) min = 0f;
+							if (max == float.MinValue) max = 0f;
 
-                            if (max == float.MinValue)
-                            {
-                                max = 0f;
-                            }
+							min = Math.Sign(min) * (float) Math.Sqrt(Math.Abs(min));
+							max = Math.Sign(max) * (float) Math.Sqrt(Math.Abs(max));
 
-                            // --- OPTIMIERUNG ---
-                            // Die teure Verstärkung (Wurzel) wird JETZT ERST angewendet,
-                            // nur einmal pro Pixelspalte, nicht tausendfach innen drin.
-                            // Math.Sqrt ist zudem schneller als Math.Pow(..., 0.5)
-                            min = Math.Sign(min) * (float) Math.Sqrt(Math.Abs(min));
-                            max = Math.Sign(max) * (float) Math.Sqrt(Math.Abs(max));
-                            // --------------------
+							int channelHeight = height / channelsToDraw;
+							int centerY = channelHeight / 2 + ch * channelHeight;
 
-                            int channelHeight = height / channelsToDraw;
-                            int centerY = channelHeight / 2 + ch * channelHeight;
+							int yTopPixel = centerY - (int) (max * channelHeight / 2f);
+							int yBottomPixel = centerY - (int) (min * channelHeight / 2f);
 
-                            // Bei GDI+ ist y=0 oben.
-                            // Der Max-Peak (z.B. +0.8) muss zu einem kleinen y-Wert führen (yTopPixel).
-                            // Der Min-Peak (z.B. -0.8) muss zu einem großen y-Wert führen (yBottomPixel).
-                            int yTopPixel = centerY - (int) (max * channelHeight / 2f); // Max-Peak geht nach oben
-                            int yBottomPixel = centerY - (int) (min * channelHeight / 2f); // Min-Peak geht nach unten
+							if (yTopPixel > yBottomPixel) yTopPixel = yBottomPixel;
+							if (yTopPixel == yBottomPixel) yBottomPixel = yTopPixel + 1;
 
-                            // Speichern: (Oben, Unten)
-                            minMaxPerChannel[ch][x] = (yTopPixel, yBottomPixel);
-                        }
-                    }
-                });
-            });
+							minMaxPerChannel[ch][x] = (yTopPixel, yBottomPixel);
+						}
+					}
+				});
+			});
 
-            using var g = Graphics.FromImage(bitmap);
-            g.Clear(backColor.Value);
+			using var g = Graphics.FromImage(bitmap);
+			g.Clear(backColor.Value);
 
-            // --- Selection Overlay ---
-            long selStart = this.SelectionStart;
-            long selEnd = this.SelectionEnd;
-            if (this.Channels > 0 && selStart >= 0 && selEnd >= 0 && selStart != selEnd)
-            {
-                if (selEnd < selStart)
-                {
-                    (selStart, selEnd) = (selEnd, selStart);
-                }
+			using var waveBrush = new SolidBrush(waveColor.Value);
+			for (int ch = 0; ch < channelsToDraw; ch++)
+			{
+				var topPoints = new PointF[width];
+				var bottomPoints = new PointF[width];
 
-                long selStartFrames = selStart / this.Channels;
-                long selEndFrames = selEnd / this.Channels;
-                long viewStartFrames = offset.Value;
-                long viewEndFrames = viewStartFrames + viewFrames;
+				int channelHeight = height / channelsToDraw;
+				int centerY = channelHeight / 2 + ch * channelHeight;
 
-                long highlightStartFrames = Math.Max(viewStartFrames, selStartFrames);
-                long highlightEndFrames = Math.Min(viewEndFrames, selEndFrames);
+				for (int x = 0; x < width; x++)
+				{
+					var (yTop, yBottom) = minMaxPerChannel[ch][x];
+					if (yTop == 0 && yBottom == 0)
+					{
+						yTop = yBottom = centerY;
+					}
 
-                if (highlightEndFrames > highlightStartFrames)
-                {
-                    double invSPP = 1.0 / samplesPerPixel;
-                    int x1 = (int) Math.Floor((highlightStartFrames - viewStartFrames) * invSPP);
-                    int x2 = (int) Math.Ceiling((highlightEndFrames - viewStartFrames) * invSPP);
+					if (yTop > yBottom) yTop = yBottom;
+					if (yTop == yBottom) yBottom = yTop + 1;
 
-                    int rectX = Math.Clamp(x1, 0, width);
-                    int rectW = Math.Clamp(x2 - rectX, 0, width - rectX);
+					topPoints[x] = new PointF(x, yTop);
+					bottomPoints[x] = new PointF(x, yBottom);
+				}
 
-                    if (rectW > 0)
-                    {
-                        using var selBrush = new SolidBrush(selectionColor.Value);
-                        g.FillRectangle(selBrush, rectX, 0, rectW, height);
-                    }
-                }
-            }
+				using var path = new System.Drawing.Drawing2D.GraphicsPath();
+				path.AddLines(topPoints);
+				path.AddLines(bottomPoints.Reverse().ToArray());
+				path.CloseFigure();
+				g.FillPath(waveBrush, path);
+			}
 
-            // --- Waveform zeichnen (OPTIMIERUNG 2) ---
-            // Statt eines Stifts (Pen) verwenden wir einen Pinsel (Brush) zum Füllen
-            using var waveBrush = new SolidBrush(waveColor.Value);
+			// Selection Overlay – referenziert viewStartFrames
+			long selStart = this.SelectionStart;
+			long selEnd = this.SelectionEnd;
+			if (this.Channels > 0 && selStart >= 0 && selEnd >= 0 && selStart != selEnd)
+			{
+				if (selEnd < selStart) (selStart, selEnd) = (selEnd, selStart);
 
-            for (int ch = 0; ch < channelsToDraw; ch++)
-            {
-                // Wir erstellen Punkt-Arrays für die obere und untere Kante
-                var topPoints = new PointF[width];
-                var bottomPoints = new PointF[width];
+				long selStartFrames = selStart / this.Channels;
+				long selEndFrames = selEnd / this.Channels;
+				long viewEnd = viewStartFrames + viewFrames;
 
-                int channelHeight = height / channelsToDraw;
-                int centerY = channelHeight / 2 + ch * channelHeight;
+				long highlightStartFrames = Math.Max(viewStartFrames, selStartFrames);
+				long highlightEndFrames = Math.Min(viewEnd, selEndFrames);
 
-                for (int x = 0; x < width; x++)
-                {
-                    var (yTop, yBottom) = minMaxPerChannel[ch][x];
+				if (highlightEndFrames > highlightStartFrames)
+				{
+					double invSPP = 1.0 / samplesPerPixel;
+					int x1 = (int) Math.Floor((highlightStartFrames - viewStartFrames) * invSPP);
+					int x2 = (int) Math.Ceiling((highlightEndFrames - viewStartFrames) * invSPP);
 
-                    // Standard-Fallback für Stille
-                    if (yTop == 0 && yBottom == 0)
-                    {
-                        yTop = yBottom = centerY;
-                    }
+					int rectX = Math.Clamp(x1, 0, width);
+					int rectW = Math.Clamp(x2 - rectX, 0, width - rectX);
 
-                    // Wenn die Linie zu dünn ist (yTop > yBottom durch Rundung),
-                    // setzen wir sie auf 1px Höhe, um sichtbare Lücken zu vermeiden.
-                    if (yTop > yBottom)
-                    {
-                        yTop = yBottom;
-                    }
+					if (rectW > 0)
+					{
+						using var selBrush = new SolidBrush(selectionColor.Value);
+						g.FillRectangle(selBrush, rectX, 0, rectW, height);
+					}
+				}
+			}
 
-                    if (yTop == yBottom)
-                    {
-                        yBottom = yTop + 1;
-                    }
+			// Caret
+			if (caretWidth > 0)
+			{
+				using var caretPen = new Pen(caretColor.Value, caretWidth);
+				double relX = (double) (caretFrame - viewStartFrames) / viewFrames;
+				int caretX = (int) Math.Round(relX * (width - 1));
+				if (caretX >= 0 && caretX < width)
+				{
+					g.DrawLine(caretPen, caretX, 0, caretX, height);
+				}
+			}
 
-                    topPoints[x] = new PointF(x, yTop);
-                    bottomPoints[x] = new PointF(x, yBottom);
-                }
+			// Optional glattzeichnen
+			if (smoothen)
+			{
+				var smoothBitmap = new Bitmap(width, height);
+				using (var gSmooth = Graphics.FromImage(smoothBitmap))
+				{
+					gSmooth.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+					gSmooth.DrawImage(bitmap, 0, 0, width, height);
+				}
+				bitmap.Dispose();
+				bitmap = smoothBitmap;
+			}
 
-                // Wir bauen ein Polygon:
-                // 1. Alle oberen Punkte von links nach rechts
-                // 2. Alle unteren Punkte von rechts nach links
-                // Benötigt: using System.Drawing.Drawing2D; und using System.Linq;
-                using var path = new System.Drawing.Drawing2D.GraphicsPath();
-                path.AddLines(topPoints);
-                path.AddLines(bottomPoints.Reverse().ToArray());
-                path.CloseFigure(); // Schließt das Polygon
+			// Timing-Marker mit korrektem viewStartFrames
+			if (timingMarkersInterval > 0)
+			{
+				Color inverseGraphColor = Color.FromArgb(255 - waveColor.Value.R, 255 - waveColor.Value.G, 255 - waveColor.Value.B);
+				bitmap = await this.DrawTimingMarkersAsync(bitmap, samplesPerPixel, timingMarkersInterval, inverseGraphColor, false, viewStartFrames).ConfigureAwait(false);
+			}
 
-                // Wir füllen das Polygon mit EINEM Aufruf statt 'width' DrawLine-Aufrufen
-                g.FillPath(waveBrush, path);
-            }
-            // --- Ende Optimierung 2 ---
+			return bitmap;
+		}
 
-
-            // --- Caret zeichnen (immer Playback Position) ---
-            if (caretWidth > 0)
-            {
-                using var caretPen = new Pen(caretColor.Value, caretWidth);
-                double relX = (double) (caretFrame - offset.Value) / viewFrames;
-                int caretX = (int) Math.Round(relX * (width - 1));
-                if (caretX >= 0 && caretX < width)
-                {
-                    g.DrawLine(caretPen, caretX, 0, caretX, height);
-                }
-            }
-
-            // --- Optional smoothen ---
-            if (smoothen)
-            {
-                var smoothBitmap = new Bitmap(width, height);
-                using (var gSmooth = Graphics.FromImage(smoothBitmap))
-                {
-                    gSmooth.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-                    gSmooth.DrawImage(bitmap, 0, 0, width, height);
-                }
-                bitmap.Dispose();
-                bitmap = smoothBitmap;
-            }
-
-            // --- Timing markers ---
-            if (timingMarkersInterval > 0)
-            {
-                Color inverseGraphColor = Color.FromArgb(255 - waveColor.Value.R, 255 - waveColor.Value.G, 255 - waveColor.Value.B);
-                bitmap = await this.DrawTimingMarkersAsync(bitmap, samplesPerPixel, timingMarkersInterval, inverseGraphColor, false, offset.Value).ConfigureAwait(false);
-            }
-
-            return bitmap;
-        }
-
-        [SupportedOSPlatform("windows")]
+		[SupportedOSPlatform("windows")]
         public async Task<Bitmap> DrawTimingMarkersAsync(Bitmap waveForm, int samplesPerPixel, double interval = 1, Color? color = null, bool drawTimes = false, long offsetFrames = 0)
         {
             color ??= Color.Gray;
@@ -1745,5 +1740,53 @@ namespace CSharpSamplesCutter.Core
 
             return Math.Max(1, samplesPerPixel);
         }
+
+
+        private (long selStart, long selEnd, bool hasSelection) GetSelectionSampleSpan()
+        {
+            if (this.Data == null || this.Data.Length == 0 || this.Channels <= 0)
+            {
+                return (0, 0, false);
+            }
+
+            // WICHTIG:
+            // Annahme: SelectionStart/End sind FRAME-Indizes (pro Kanalgruppe).
+            // Falls deine Auswahl bereits "Sample"-Indizes (im float[]) sind:
+            // -> selectionIsFrameIndices = false
+            const bool selectionIsFrameIndices = false;
+
+            bool hasSelection = this.SelectionStart >= 0 && this.SelectionEnd >= 0 && this.SelectionEnd > this.SelectionStart;
+            if (!hasSelection)
+            {
+                return (0, 0, false);
+            }
+
+            long selStart = this.SelectionStart;
+            long selEnd = this.SelectionEnd;
+
+            if (selectionIsFrameIndices)
+            {
+                selStart *= this.Channels;
+                selEnd *= this.Channels;
+            }
+
+            // Auf Kanalgrenzen ausrichten
+            if (this.Channels > 1)
+            {
+                selStart = (selStart / this.Channels) * this.Channels;
+                selEnd = (selEnd / this.Channels) * this.Channels;
+            }
+
+            selStart = Math.Clamp(selStart, 0, this.Data.LongLength);
+            selEnd = Math.Clamp(selEnd, 0, this.Data.LongLength);
+
+            if (selEnd <= selStart)
+            {
+                return (0, 0, false);
+            }
+
+            return (selStart, selEnd, true);
+        }
+
     }
 }

@@ -104,6 +104,7 @@
             this.panel_basicProcessingParameters = new Panel();
             this.button_basicProcessingGo = new Button();
             this.comboBox_basicProcessing = new ComboBox();
+            this.button_loop = new Button();
             ((System.ComponentModel.ISupportInitialize) this.pictureBox_wave).BeginInit();
             this.groupBox_view.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize) this.numericUpDown_skipTracks).BeginInit();
@@ -959,11 +960,23 @@
             this.comboBox_basicProcessing.TabIndex = 39;
             this.comboBox_basicProcessing.Text = "Select a function ...";
             // 
+            // button_loop
+            // 
+            this.button_loop.Font = new Font("Segoe UI Symbol", 9F, FontStyle.Bold, GraphicsUnit.Point,  0);
+            this.button_loop.Location = new Point(1232, 373);
+            this.button_loop.Name = "button_loop";
+            this.button_loop.Size = new Size(23, 23);
+            this.button_loop.TabIndex = 39;
+            this.button_loop.Text = "↺";
+            this.button_loop.UseVisualStyleBackColor = true;
+            this.button_loop.Click += this.button_loop_Click;
+            // 
             // WindowMain
             // 
             this.AutoScaleDimensions = new SizeF(7F, 15F);
             this.AutoScaleMode = AutoScaleMode.Font;
             this.ClientSize = new Size(1424, 821);
+            this.Controls.Add(this.button_loop);
             this.Controls.Add(this.groupBox_basicProcessing);
             this.Controls.Add(this.groupBox_audioScanner);
             this.Controls.Add(this.listBox_audios);
@@ -1095,5 +1108,6 @@
         private ComboBox comboBox_basicProcessing;
         private CheckBox checkBox_optionalParameters;
         private CheckBox checkBox_autoParameters;
+        private Button button_loop;
     }
 }

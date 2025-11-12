@@ -59,6 +59,9 @@
             this.numericUpDown_targetPeak = new NumericUpDown();
             this.label_info_mapping = new Label();
             this.button_autoMap = new Button();
+            this.domainUpDown_smallestNote = new DomainUpDown();
+            this.label_info_clickToPlay = new Label();
+            this.label_info_smallestNote = new Label();
             ((System.ComponentModel.ISupportInitialize) this.numericUpDown_loops).BeginInit();
             ((System.ComponentModel.ISupportInitialize) this.pictureBox_view).BeginInit();
             ((System.ComponentModel.ISupportInitialize) this.numericUpDown_timeStretch).BeginInit();
@@ -374,12 +377,49 @@
             this.button_autoMap.UseVisualStyleBackColor = false;
             this.button_autoMap.Click += this.button_autoMap_Click;
             // 
+            // domainUpDown_smallestNote
+            // 
+            this.domainUpDown_smallestNote.Items.Add("1 /   1");
+            this.domainUpDown_smallestNote.Items.Add("1 /   2");
+            this.domainUpDown_smallestNote.Items.Add("1 /   4");
+            this.domainUpDown_smallestNote.Items.Add("1 /   8");
+            this.domainUpDown_smallestNote.Items.Add("1 /  16");
+            this.domainUpDown_smallestNote.Items.Add("1 /  32");
+            this.domainUpDown_smallestNote.Items.Add("1 /  64");
+            this.domainUpDown_smallestNote.Items.Add("1 / 128");
+            this.domainUpDown_smallestNote.Location = new Point(144, 476);
+            this.domainUpDown_smallestNote.Name = "domainUpDown_smallestNote";
+            this.domainUpDown_smallestNote.Size = new Size(68, 23);
+            this.domainUpDown_smallestNote.TabIndex = 32;
+            this.domainUpDown_smallestNote.Text = "1 /  16";
+            // 
+            // label_info_clickToPlay
+            // 
+            this.label_info_clickToPlay.AutoSize = true;
+            this.label_info_clickToPlay.Location = new Point(218, 87);
+            this.label_info_clickToPlay.Name = "label_info_clickToPlay";
+            this.label_info_clickToPlay.Size = new Size(170, 15);
+            this.label_info_clickToPlay.TabIndex = 33;
+            this.label_info_clickToPlay.Text = "<-- Click on a sample to play it";
+            // 
+            // label_info_smallestNote
+            // 
+            this.label_info_smallestNote.AutoSize = true;
+            this.label_info_smallestNote.Location = new Point(144, 443);
+            this.label_info_smallestNote.Name = "label_info_smallestNote";
+            this.label_info_smallestNote.Size = new Size(51, 30);
+            this.label_info_smallestNote.TabIndex = 34;
+            this.label_info_smallestNote.Text = "Smallest\r\nNote";
+            // 
             // DrumsetDialog
             // 
             this.AutoScaleDimensions = new SizeF(7F, 15F);
             this.AutoScaleMode = AutoScaleMode.Font;
             this.BackColor = Color.WhiteSmoke;
             this.ClientSize = new Size(800, 511);
+            this.Controls.Add(this.label_info_smallestNote);
+            this.Controls.Add(this.label_info_clickToPlay);
+            this.Controls.Add(this.domainUpDown_smallestNote);
             this.Controls.Add(this.button_autoMap);
             this.Controls.Add(this.label_info_mapping);
             this.Controls.Add(this.label_info_targetPeak);
@@ -459,5 +499,8 @@
         private NumericUpDown numericUpDown_targetPeak;
         private Label label_info_mapping;
         private Button button_autoMap;
+        private DomainUpDown domainUpDown_smallestNote;
+        private Label label_info_clickToPlay;
+        private Label label_info_smallestNote;
     }
 }

@@ -15,4 +15,142 @@
     <PackageReference Include="TagLibSharp" Version="2.3.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Resources\Cola %28Separated%29\bass.flac">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Cola %28Separated%29\drums.flac">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Cola %28Separated%29\other.flac">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Cola %28Separated%29\vocals.flac">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Jazz Vibes %28Separated%29\Bass - 40 Lucky - Jazz Vibes.mp3">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Jazz Vibes %28Separated%29\Drums - 40 Lucky - Jazz Vibes.mp3">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Jazz Vibes %28Separated%29\Instrumental - 40 Lucky - Jazz Vibes.mp3">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Jazz Vibes %28Separated%29\Other - 40 Lucky - Jazz Vibes.mp3">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Jazz Vibes %28Separated%29\Vocals - 40 Lucky - Jazz Vibes.mp3">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\bass.flac">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\drums.flac">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\other.flac">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\vocals.flac">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\clear_loop_samples\crash_01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\clear_loop_samples\hihat_open01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\clear_loop_samples\kick_01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\clear_loop_samples\ride_01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\clear_loop_samples\rim_01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\clear_loop_samples\snare_01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\effect_loop_samples\crash_01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\effect_loop_samples\hihat_open01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\effect_loop_samples\hihat_open_01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\effect_loop_samples\kick_01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\effect_loop_samples\kick_02.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\effect_loop_samples\ride_01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\effect_loop_samples\ride_02.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\effect_loop_samples\ride_short01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\effect_loop_samples\rim_01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\effect_loop_samples\rim_02.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\effect_loop_samples\snare_01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\effect_loop_samples\snare_02.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\effect_loop_samples\snare_03.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\scratch_loop_samples\scratch_down_01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\scratch_loop_samples\scratch_down_02.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\scratch_loop_samples\scratch_up_01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\scratch_loop_samples\scratch_up_02.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\start_loop_samples\kick01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\start_loop_samples\snare01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\start_loop_samples\snare_rattle01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\start_loop_samples\tom_high01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Kinda Girl %28Separated%29\_Samples\start_loop_samples\tom_mid01.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Revelation %28separated%29\bass.flac">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Revelation %28separated%29\drums.flac">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Revelation %28separated%29\other.flac">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Resources\Revelation %28separated%29\vocals.flac">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

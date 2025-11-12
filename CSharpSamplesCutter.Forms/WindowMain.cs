@@ -15,21 +15,33 @@ namespace CSharpSamplesCutter.Forms
 
         public AudioObj? SelectedTrack => this.listBox_audios.SelectedIndex >= 0 ? this.AudioC[this.listBox_audios.SelectedValue is Guid id ? id : Guid.Empty] : this.listBox_reserve.SelectedIndex >= 0 ? this.AudioC_res[this.listBox_reserve.SelectedValue is Guid id_res ? id_res : Guid.Empty] : null;
         private AudioObj? LastSelectedTrack = null;
-        internal List<Guid> SelectedGuids => (this.listBox_audios.SelectionMode == System.Windows.Forms.SelectionMode.MultiExtended || this.listBox_reserve.SelectionMode == System.Windows.Forms.SelectionMode.MultiExtended)
-        ? this.listBox_audios.SelectedItems.Cast<AudioObj?>().Select(a => a!.Id)
-            .Concat(this.listBox_reserve.SelectedItems.Cast<AudioObj?>().Select(a => a!.Id)).Where(id => id != Guid.Empty).Distinct().ToList()
-            : this.SelectedTrack != null ? [this.SelectedTrack.Id] : [];
-        private int? _anchorIndexMain;
-        private int? _anchorIndexReserve;
 
-        private bool _isDragInitiated = false;
-        private int _dragStartIndex = -1;
-        private ListBox? _dragSourceListBox = null;
+
+        private ListBox? SelectedCollectionListBox => this.listBox_audios.Items.OfType<AudioObj>().Any(a => a.Id == this.SelectedTrack?.Id) ? this.listBox_audios : this.listBox_reserve.Items.OfType<AudioObj>().Any(a => a.Id == this.SelectedTrack?.Id) ? this.listBox_reserve : null;
+        internal void UpdateSelectedCollectionListBox() => _ = (this.SelectedCollectionListBox is { IsDisposed: false } lb) ? (lb.IsHandleCreated && lb.InvokeRequired ? lb.BeginInvoke(new Action(() => TryReselectInvalidateUpdate(lb))) : (object) TryReselectInvalidateUpdate(lb)) : null!;
+
+
+        internal List<Guid> SelectedGuids => (this.listBox_audios.SelectionMode == System.Windows.Forms.SelectionMode.MultiExtended || this.listBox_reserve.SelectionMode == System.Windows.Forms.SelectionMode.MultiExtended) ? this.listBox_audios.SelectedItems.Cast<AudioObj?>().Select(a => a!.Id).Concat(this.listBox_reserve.SelectedItems.Cast<AudioObj?>().Select(a => a!.Id)).Where(id => id != Guid.Empty).Distinct().ToList() : this.SelectedTrack != null ? [this.SelectedTrack.Id] : [];
+        private int? anchorIndexMain;
+        private int? anchorIndexReserve;
+        private bool suppressScrollEvent = false;
+        private bool isUserScroll = false;
+
+
+        private bool isDragInitiated = false;
+        private int dragStartIndex = -1;
+        private ListBox? dragSourceListBox = null;
+
+        public bool LoopEnabled { get; private set; } = false;
+        public double LoopStep => this.button_loop.Tag == null ? 0.0 : (double) this.button_loop.Tag;
 
         private readonly Timer UpdateTimer;
         private readonly ConcurrentDictionary<Guid, CancellationToken> PlaybackCancellationTokens = [];
+
         private bool IsSelecting = false;
         private bool CursorOverPictureBox => this.GetCursorOverPictureBox();
+        private DateTime lastSpaceToggleUtc = DateTime.MinValue;
+        private bool spaceKeyDebounceActive = false;
 
         public double FrameRate => (double) this.numericUpDown_frameRate.Value;
         public bool DrawEachChannel => this.checkBox_drawEachChannel.Checked;
@@ -152,11 +164,18 @@ namespace CSharpSamplesCutter.Forms
             this.listBox_log.DataSource = LogCollection.Logs;
             LogCollection.Logs.ListChanged += (s, ev) =>
             {
-                this.listBox_log.Invoke(() =>
+                try
                 {
-                    this.listBox_log.TopIndex = this.listBox_log.Items.Count - 1;
-                });
-			};
+                    this.listBox_log.Invoke(() =>
+                    {
+                        this.listBox_log.TopIndex = this.listBox_log.Items.Count - 1;
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex);
+                }
+            };
             this.listBox_log.DoubleClick += (s, ev) =>
             {
                 if (this.listBox_log.SelectedItem != null)
@@ -218,6 +237,10 @@ namespace CSharpSamplesCutter.Forms
             this.listBox_reserve.DragOver += this.ListBox_DragOver;
             this.listBox_audios.DragDrop += this.ListBox_DragDrop;
             this.listBox_reserve.DragDrop += this.ListBox_DragDrop;
+            this.AllowDrop = true;
+            this.DragEnter += this.WindowMain_DragEnter;
+            this.DragDrop += this.WindowMain_DragDrop;
+            this.comboBox_basicProcessing.DropDownStyle = ComboBoxStyle.DropDownList;
         }
 
         private void PreviousSteps_ListChanged(object? sender, ListChangedEventArgs e)
@@ -252,34 +275,10 @@ namespace CSharpSamplesCutter.Forms
             }
         }
 
-        private void RecalculateScrollBar()
-        {
-            var track = this.SelectedTrack;
-            if (track == null)
-            {
-                return;
-            }
-            int ch = Math.Max(1, track.Channels);
-            long totalFrames = track.Length / ch;
-            long viewFrames = (long) this.pictureBox_wave.Width * this.SamplesPerPixel;
-            long maxOffsetFrames = Math.Max(0, totalFrames - viewFrames);
-            this.ClampViewOffset(); // neu: Offset vor Berechnung begrenzen
-            int maxColumns = (int) Math.Max(0, (maxOffsetFrames + this.SamplesPerPixel - 1) / this.SamplesPerPixel);
-            this.hScrollBar_scroll.Minimum = 0;
 
-            // Proportionale Scroll-Schritte relativ zur sichtbaren Breite
-            int viewColumns = Math.Max(1, this.pictureBox_wave.Width);
-            this.hScrollBar_scroll.SmallChange = Math.Max(1, viewColumns / 20); // ~5% der Breite
-            this.hScrollBar_scroll.LargeChange = Math.Max(1, viewColumns / 2);  // ~50% Seite
 
-            this.hScrollBar_scroll.Maximum = Math.Max(0, maxColumns + this.hScrollBar_scroll.LargeChange - 1);
 
-            // Aktuellen Offset in Frames in Spaltenwert überführen und clampen
-            long desiredColumn = this.viewOffsetFrames / Math.Max(1, this.SamplesPerPixel);
-            int clamped = (int) Math.Clamp(desiredColumn, 0, Math.Max(0, this.hScrollBar_scroll.Maximum - this.hScrollBar_scroll.LargeChange + 1));
-            this.hScrollBar_scroll.Value = clamped;
-        }
-
+        // ----- Global KeyDown Events -----
         private async void Form_CtrlZ_Pressed(object? sender, KeyEventArgs e)
         {
             if (e.Control && e.KeyCode == Keys.Z)
@@ -297,8 +296,8 @@ namespace CSharpSamplesCutter.Forms
                     return;
                 }
 
-                this.StepsBack = 0; // interne Zählung nicht mehr benötigt
-                this.listBox_audios.Refresh();
+                this.StepsBack = 0;
+                this.UpdateSelectedCollectionListBox(); // statt listBox_audios.Refresh()
                 this.UpdateViewingElements();
                 this.UpdateUndoLabel();
                 LogCollection.Log($"Undo applied on track: {track.Name}");
@@ -323,7 +322,7 @@ namespace CSharpSamplesCutter.Forms
                 }
 
                 this.StepsBack = 0;
-                this.listBox_audios.Refresh();
+                this.UpdateSelectedCollectionListBox(); // statt listBox_audios.Refresh()
                 this.UpdateViewingElements();
                 this.UpdateUndoLabel();
                 LogCollection.Log($"Redo applied on track: {track.Name}");
@@ -345,62 +344,15 @@ namespace CSharpSamplesCutter.Forms
                     this.button_copy.PerformClick();
                 }
             }
+
+            await Task.CompletedTask;
         }
 
         private async void Form_Del_Pressed(object? sender, KeyEventArgs e)
         {
             if (e.KeyCode == Keys.Delete)
             {
-                if (ModifierKeys.HasFlag(Keys.Control))
-                {
-                    var toRemoveGuids = this.SelectedGuids.Count > 1 ? this.SelectedGuids : (this.SelectedTrack != null ? [this.SelectedTrack.Id] : []);
-                    if (toRemoveGuids.Count <= 0)
-                    {
-                        LogCollection.Log("Ctrl+Del: No audio samples selected for removal.");
-                        return;
-                    }
-
-                    // aktive ListBox bestimmen + aktuelle Indizes sichern
-                    var activeListBox = this.listBox_audios.SelectedIndices.Count > 0 ? this.listBox_audios :
-                        (this.listBox_reserve.SelectedIndices.Count > 0 ? this.listBox_reserve : null);
-                    var removedIndices = activeListBox != null
-                        ? activeListBox.SelectedIndices.Cast<int>().OrderBy(i => i).ToList()
-                        : [];
-
-                    var removeTasks = toRemoveGuids.Select(async id =>
-                    {
-                        var track = this.AudioC[id] ?? this.AudioC_res[id];
-                        if (track != null)
-                        {
-                            bool inMain = this.AudioC.Audios.Any(a => a.Id == id);
-                            var removed = inMain
-                                ? await this.AudioC.RemoveAsync(track.Id)
-                                : await this.AudioC_res.RemoveAsync(track.Id);
-
-                            if ((inMain && this.AudioC.Audios.Any(a => a.Id == id)) ||
-                                (!inMain && this.AudioC_res.Audios.Any(a => a.Id == id)))
-                            {
-                                LogCollection.Log($"Failed to remove audio sample: {track.Name}");
-                            }
-                            else
-                            {
-                                LogCollection.Log($"Removed audio sample: {track.Name}");
-                            }
-                        }
-                    });
-
-                    await Task.WhenAll(removeTasks);
-
-                    // Nach dem Entfernen neu auswählen
-                    if (activeListBox != null && removedIndices.Count > 0)
-                    {
-                        this.ReselectAfterRemoval(activeListBox, removedIndices);
-                    }
-
-                    return;
-                }
-
-                // (Originaler Block für Sample-Selektion unverändert)
+                // ... unverändert bis zur Operation ...
                 if (this.SelectionMode.Equals("Select", StringComparison.OrdinalIgnoreCase))
                 {
                     var track = this.SelectedTrack;
@@ -415,12 +367,13 @@ namespace CSharpSamplesCutter.Forms
                             ? track.Position * Math.Max(1, track.Channels)
                             : this.GetFrameUnderCursor() * Math.Max(1, track.Channels);
                     long endSample = track.SelectionEnd >= 0 ? track.SelectionEnd : track.Length;
+
                     await track.CreateSnapshotAsync();
                     this.UpdateUndoLabel();
                     await track.EraseSelectionAsync(startSample, endSample);
                     LogCollection.Log($"Deleted selection on track: {track.Name}");
 
-                    this.listBox_audios.Refresh();
+                    this.UpdateSelectedCollectionListBox(); // statt listBox_audios.Refresh()
                     this.UpdateViewingElements();
                 }
             }
@@ -433,16 +386,19 @@ namespace CSharpSamplesCutter.Forms
                 return;
             }
 
-            // Ctrl+Backspace: Play/Stop toggle (unverändert)
+            // Editierkontext schützen (z.B. Textbox in GroupBox)
+            if (this.IsEditingContext())
+            {
+                return;
+            }
+
+            // Ctrl+Backspace: Play/Stop toggle
             if (ModifierKeys.HasFlag(Keys.Control))
             {
-				await this.AudioC.StopAllAsync();
+                await this.AudioC.StopAllAsync();
                 await this.AudioC_res.StopAllAsync();
-				this.button_playback.Invoke(() =>
-				{
-					this.button_playback.Text = "▶";
-				});
-				this.PlaybackCancellationTokens.Clear();
+                this.button_playback.Invoke(() => { this.button_playback.Text = "▶"; });
+                this.PlaybackCancellationTokens.Clear();
                 return;
             }
 
@@ -454,22 +410,21 @@ namespace CSharpSamplesCutter.Forms
 
             if (this.SelectionMode.Equals("Select", StringComparison.OrdinalIgnoreCase))
             {
-                // Zum Anfang oder zur zuletzt manuell gesetzten Position springen
-                bool wasPlaying = track.PlayerPlaying;
+                bool isPlaying = track.Playing;
+                bool isPaused = track.Paused;
                 int ch = Math.Max(1, track.Channels);
 
-                // Zielposition in Frames: bevorzugt StartingOffset (manuell gesetzt), sonst 0 (Anfang)
+                // Zielposition: bevorzugt StartingOffset, sonst 0
                 long targetFrame = track.StartingOffset > 0 ? track.StartingOffset / ch : 0;
 
-                if (wasPlaying)
+                if (isPlaying || isPaused)
                 {
-                    // Nahtlos: erst pausieren, dann SetPosition (setzt resume-Flag), dann wieder fortsetzen
+                    // Playback reposition: kurz pausieren → SetPosition → View neu setzen → fortsetzen
                     try { await track.PauseAsync(); } catch { /* ignore */ }
 
                     track.SetPosition(targetFrame);
                     track.StartingOffset = targetFrame * ch;
 
-                    // View so setzen, dass das Caret an gewünschter CaretPosition sichtbar ist
                     int width = Math.Max(1, this.pictureBox_wave.Width);
                     int spp = this.SamplesPerPixel;
                     long viewFrames = (long) width * Math.Max(1, spp);
@@ -483,12 +438,14 @@ namespace CSharpSamplesCutter.Forms
                     this.RecalculateScrollBar();
                     track.ScrollOffset = this.viewOffsetFrames;
 
-                    // Fortsetzen (PauseAsync toggelt wieder auf Play und führt Seek durch)
-                    try { await track.PauseAsync(); } catch { /* ignore */ }
+                    if (!track.Playing || track.Paused)
+                    {
+                        try { await track.PauseAsync(); } catch { /* toggle resume */ }
+                    }
                 }
                 else
                 {
-                    // Nicht gespielt: nur Position setzen & starten
+                    // Paused/Stopped: NUR repositionieren, BITTE automatisch starten
                     track.SetPosition(targetFrame);
                     track.StartingOffset = targetFrame * ch;
 
@@ -505,22 +462,11 @@ namespace CSharpSamplesCutter.Forms
                     this.RecalculateScrollBar();
                     track.ScrollOffset = this.viewOffsetFrames;
 
-                    var onPlaybackStopped = new Action(() =>
-                    {
-                        this.button_playback.Invoke(() =>
-                        {
-                            this.button_playback.Text = "▶";
-                        });
-                        this.PlaybackCancellationTokens.TryRemove(track.Id, out _);
-                    });
-                    var cts = new CancellationTokenSource();
-                    this.PlaybackCancellationTokens[track.Id] = cts.Token;
-                    try { await track.PlayAsync(cts.Token, onPlaybackStopped, this.Volume, 150); } catch { /* ignore */ }
+                    try { await track.PlayAsync(CancellationToken.None, null, this.Volume, 90); } catch { /* ignore */ }
                 }
             }
             else if (this.SelectionMode.Equals("Erase", StringComparison.OrdinalIgnoreCase))
             {
-                // Cutoff all before selectionStart OR to current position OR cursor position
                 long startSample = track.SelectionStart >= 0
                     ? track.SelectionStart
                     : track.Playing
@@ -541,40 +487,68 @@ namespace CSharpSamplesCutter.Forms
                 }
             }
 
-            this.listBox_audios.Refresh();
-            this.UpdateViewingElements();
+            // this.UpdateViewingElements();
         }
 
         private async void Form_Space_Pressed(object? sender, KeyEventArgs e)
         {
-            if (e.KeyCode == Keys.Space)
+            if (e.KeyCode != Keys.Space)
             {
-                var track = this.SelectedTrack;
-                if (track == null)
-                {
-                    return;
-                }
+                return;
+            }
+
+            // 1) Wenn in einem editierbaren Kontext: Space NICHT als Play/Pause ausführen
+            if (this.IsEditingContext())
+            {
+                return;
+            }
+
+            var track = this.SelectedTrack;
+            if (track == null)
+            {
+                return;
+            }
+
+            // 2) Debounce: mehrere sehr schnelle Space-Events ignorieren
+            var now = DateTime.UtcNow;
+            if (this.spaceKeyDebounceActive || (now - this.lastSpaceToggleUtc).TotalMilliseconds < 180)
+            {
+                return;
+            }
+
+            this.spaceKeyDebounceActive = true;
+            this.lastSpaceToggleUtc = now;
+
+            try
+            {
                 if (track.Playing || track.Paused)
                 {
                     await track.PauseAsync();
-                    this.button_pause.ForeColor = track.Paused ? Color.Black : Color.DarkGray;
+                    this.button_pause.ForeColor = track.Paused ? Color.DarkGray : Color.Black;
                 }
                 else
                 {
+                    // Playback starten
                     var onPlaybackStopped = new Action(() =>
                     {
-                        this.button_playback.Invoke(() =>
-                        {
-                            this.button_playback.Text = "▶";
-                        });
+                        this.button_playback.Invoke(() => this.button_playback.Text = "▶");
                         this.PlaybackCancellationTokens.TryRemove(track.Id, out _);
                     });
 
                     var cts = new CancellationTokenSource();
                     this.PlaybackCancellationTokens[track.Id] = cts.Token;
-                    await track.PlayAsync(cts.Token, onPlaybackStopped, this.Volume, 120);
                     this.button_playback.Text = "■";
+                    await track.PlayAsync(cts.Token, onPlaybackStopped, this.Volume, 120);
                 }
+            }
+            finally
+            {
+                // Kurz verzögert freigeben, damit „halb gedrückte“ Space-Spam-Events nicht stottern
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(120);
+                    this.spaceKeyDebounceActive = false;
+                });
             }
         }
 
@@ -647,13 +621,22 @@ namespace CSharpSamplesCutter.Forms
                 }
                 else
                 {
-                    // Horizontal scroll – Schritt in Spalteneinheiten
+                    // Scrolling jetzt auch bei Pause / nicht gestartet erlaubt
+                    if (track.PlayerPlaying && this.checkBox_sync.Checked)
+                    {
+                        return; // Während Wiedergabe + Sync keine manuelle Verschiebung
+                    }
+
                     int deltaCols = (int) (notches * this.hScrollBar_scroll.SmallChange);
-                    long newColumn = this.hScrollBar_scroll.Value - deltaCols; // Notches>0 => nach links
+                    long newColumn = this.hScrollBar_scroll.Value - deltaCols;
                     newColumn = Math.Clamp(newColumn, 0, (long) this.hScrollBar_scroll.Maximum);
                     this.hScrollBar_scroll.Value = (int) newColumn;
+
                     this.viewOffsetFrames = this.hScrollBar_scroll.Value * (long) this.SamplesPerPixel;
-                    this.UpdateViewingElements();
+                    track.ScrollOffset = this.viewOffsetFrames;
+
+                    _ = this.RedrawWaveformImmediateAsync(); // sofort sichtbar machen
+                    this.UpdateViewingElements(skipScrollbarSync: true);
                 }
             };
 
@@ -704,7 +687,7 @@ namespace CSharpSamplesCutter.Forms
 
             pictureBox_waveform.MouseUp += async (s, e) =>
             {
-                int selectedIndex = this.listBox_audios.SelectedIndex;
+                int selectedIndex = this.listBox_audios.SelectedIndex >= 0 ? this.listBox_audios.SelectedIndex : this.listBox_reserve.SelectedIndex;
                 if (this.SelectedTrack == null)
                 {
                     return;
@@ -719,9 +702,9 @@ namespace CSharpSamplesCutter.Forms
                     long totalFramesSel = this.SelectedTrack.Length / chSel;
                     endFrame = Math.Clamp(endFrame, 0, Math.Max(0, totalFramesSel - 1));
                     this.SelectedTrack.SelectionEnd = endFrame * chSel;
+
                     if (Math.Abs(this.SelectedTrack.SelectionStart - this.SelectedTrack.SelectionEnd) < 5)
                     {
-                        // If track is not Playing, set position
                         if (!this.SelectedTrack.PlayerPlaying)
                         {
                             long caretFrame = this.GetFrameUnderCursor();
@@ -743,13 +726,8 @@ namespace CSharpSamplesCutter.Forms
                     this.StepsBack = 0;
                     this.ClampViewOffset();
                     this.RecalculateScrollBar();
-
-                    // SAVE: Offset nach Längenänderung sichern
                     this.SelectedTrack.ScrollOffset = this.viewOffsetFrames;
                 }
-
-                this.listBox_audios.Refresh();
-                this.UpdateViewingElements();
 
                 this.IsSelecting = false;
             };
@@ -767,79 +745,90 @@ namespace CSharpSamplesCutter.Forms
                     return;
                 }
 
-                // Ensure the persisted offset is valid before any recalculation
                 this.ClampViewOffset();
 
+                // UI-Thread sicherstellen (ohne InvokeAsync-Erweiterung):
                 if (this.pictureBox_wave.InvokeRequired || this.textBox_timestamp.InvokeRequired)
                 {
-                    await this.pictureBox_wave.Invoke(async () => await this.UpdateTimer_TickAsync());
+                    var tcs = new TaskCompletionSource<object?>();
+                    this.pictureBox_wave.BeginInvoke(new Action(async () =>
+                    {
+                        try { await this.UpdateTimer_TickAsync(); tcs.TrySetResult(null); }
+                        catch (Exception ex) { tcs.TrySetException(ex); }
+                    }));
+                    await tcs.Task;
                     return;
                 }
 
-                // Auto-Sync (existing behavior)
-                if (this.checkBox_sync.Checked && track.PlayerPlaying)
+                // Merker: ob wir aktuell "Follow" machen (nur bei Playback + Sync)
+                bool follow = this.checkBox_sync.Checked && track.PlayerPlaying;
+
+                // ====== A) Nur BEI PLAYBACK: Auto-Follow & Recenter ======
+                if (follow)
                 {
-                    long caretFrame = track.Position;
                     long viewFrames = (long) this.pictureBox_wave.Width * Math.Max(1, spp);
                     long leftMargin = 8L * Math.Max(1, spp);
                     long rightMargin = 16L * Math.Max(1, spp);
+
+                    long caret = track.Position;
                     long start = this.viewOffsetFrames;
 
-                    if (caretFrame < start + leftMargin)
+                    if (caret < start + leftMargin)
                     {
-                        start = Math.Max(0, caretFrame - leftMargin);
+                        start = Math.Max(0, caret - leftMargin);
                     }
-                    else if (caretFrame > start + viewFrames - rightMargin)
+                    else if (caret > start + viewFrames - rightMargin)
                     {
-                        start = Math.Max(0, caretFrame - (viewFrames - rightMargin));
+                        start = Math.Max(0, caret - (viewFrames - rightMargin));
                     }
 
-                    if (start != this.viewOffsetFrames)
-                    {
-                        this.viewOffsetFrames = start;
-                        this.ClampViewOffset();
-                        this.RecalculateScrollBar();
-
-                        // SAVE: Auto-Scroll in Track persistieren
-                        track.ScrollOffset = this.viewOffsetFrames;
-                    }
-                }
-
-                // IMPORTANT:
-                // AudioObj.DrawWaveformAsync computes its own view offset based on the track.Position and the caretPosition
-                // (it recenters the view so the caret is at caretPosition). To keep mapping between
-                // cursor <-> sample consistent we must compute the same offset here and store it in viewOffsetFrames
-                // so mouse-based selection and GetFrameUnderCursor() align with the rendered bitmap.
-                {
-                    int width = Math.Max(1, this.pictureBox_wave.Width);
-                    long viewFrames = (long) width * Math.Max(1, spp);
+                    // Recenter auf Caret-Position innerhalb der View
                     int ch = Math.Max(1, track.Channels);
                     long totalFrames = Math.Max(1, track.Length / ch);
                     long maxOffset = Math.Max(0, totalFrames - viewFrames);
 
-                    long caretFrame = track.Position;
                     float caretPosClamped = Math.Clamp(this.CaretPosition, 0f, 1f);
                     long caretInViewFrames = (long) Math.Round(viewFrames * caretPosClamped);
-                    long newOffset = caretFrame - caretInViewFrames;
-                    long computedOffset = Math.Clamp(newOffset, 0, maxOffset);
+                    long computedOffset = Math.Clamp(caret - caretInViewFrames, 0, maxOffset);
 
-                    // Update persistent view offset so selection/labels/scrollbar match the actual drawing
-                    this.viewOffsetFrames = computedOffset;
+                    long wanted = Math.Max(start, computedOffset);
+                    if (wanted != this.viewOffsetFrames)
+                    {
+                        this.viewOffsetFrames = wanted;
+                        this.ClampViewOffset();
+
+                        // Scrollbar programmgesteuert synchronisieren (Event unterdrücken)
+                        this.suppressScrollEvent = true;
+                        try { this.RecalculateScrollBar(); }
+                        finally { this.suppressScrollEvent = false; }
+
+                        track.ScrollOffset = this.viewOffsetFrames;
+                    }
+                }
+                // ====== B) Paused/Stopped: KEIN Auto-Recenter ======
+                // Nichts verändern; der User darf die Ansicht frei setzen.
+                // Optional: nur wenn extern track.ScrollOffset geändert wurde und der User NICHT scrollt, übernehmen:
+                else if (!this.isUserScroll && track.ScrollOffset != this.viewOffsetFrames)
+                {
+                    this.viewOffsetFrames = track.ScrollOffset;
                     this.ClampViewOffset();
-                    this.RecalculateScrollBar();
 
-                    // SAVE offset to track so it survives other operations (consistent with existing behavior)
-                    track.ScrollOffset = this.viewOffsetFrames;
+                    this.suppressScrollEvent = true;
+                    try { this.RecalculateScrollBar(); }
+                    finally { this.suppressScrollEvent = false; }
                 }
 
-                // Hue
+                // Hue (wie gehabt)
                 if (this.HueEnabled)
                 {
                     this.GetNextHue(spp);
                 }
 
-                // Use the (now synchronized) viewOffsetFrames when asking the track to draw.
-                long? offsetFrames = this.CurrentScrollOffsetFrames;
+                // **WICHTIG**: Offset-Parameter für DrawWaveform:
+                //  - follow == true (Playback + Sync): offsetFrames = null  -> Recenter durch DrawWaveformAsync
+                //  - sonst (Pause/Stop): offsetFrames = viewOffsetFrames    -> exakt dieser View-Start
+                // In UpdateTimer_TickAsync – Erzeugung des Bitmaps:
+                long? offsetFrames = this.viewOffsetFrames; // immer explizit übergeben
 
                 Bitmap bmp = await track.DrawWaveformAsync(
                     this.pictureBox_wave.Width,
@@ -858,8 +847,8 @@ namespace CSharpSamplesCutter.Forms
                     2);
 
                 this.textBox_timestamp.Text = ((track.PlayerPlaying || track.Paused) ? track.CurrentTime : track.Duration).ToString("hh\\:mm\\:ss\\.fff");
+
                 this.pictureBox_wave.Image = bmp;
-                GC.Collect();
             }
             catch (Exception ex)
             {
@@ -867,7 +856,8 @@ namespace CSharpSamplesCutter.Forms
             }
             finally
             {
-                this.UpdateViewingElements();
+                // NICHT die Scrollbar gegen User-Scroll neu setzen:
+                this.UpdateViewingElements(skipScrollbarSync: true);
             }
         }
 
@@ -969,7 +959,7 @@ namespace CSharpSamplesCutter.Forms
             bool shift = ModifierKeys.HasFlag(Keys.Shift);
 
             // Anker auswählen je nach ListBox
-            ref int? anchor = ref listBox == this.listBox_audios ? ref this._anchorIndexMain : ref this._anchorIndexReserve;
+            ref int? anchor = ref listBox == this.listBox_audios ? ref this.anchorIndexMain : ref this.anchorIndexReserve;
 
             if (ctrl)
             {
@@ -1091,6 +1081,10 @@ namespace CSharpSamplesCutter.Forms
                 // ensure disposal on unexpected exceptions
                 contextMenu.Dispose();
                 throw;
+            }
+            finally
+            {
+                await Task.CompletedTask;
             }
         }
 
@@ -1284,39 +1278,46 @@ namespace CSharpSamplesCutter.Forms
                     }
                 }
             }
-			else if (ModifierKeys.HasFlag(Keys.Shift) & !ModifierKeys.HasFlag(Keys.Control))
-			{
-				// Load Entire Directory
-				using var fbd = new FolderBrowserDialog()
-				{
-					Description = "Select Directory Containing Audio Files",
-					UseDescriptionForTitle = true,
-					InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic)
-				};
-				if (fbd.ShowDialog(this) == DialogResult.OK)
-				{
-					var dirPath = fbd.SelectedPath;
-					// Diese Methode fügt bereits in AudioC.Audios ein:
-					var loadedAudioObjs = await this.AudioC.LoadDirectoryAsync(dirPath);
-
-					// Nicht erneut hinzufügen! Nur Anzahl ermitteln:
-					int loadedCount = loadedAudioObjs.Count(a => a != null);
-
-					// Auswahl ans Ende setzen
-					this.listBox_audios.SelectedIndex = -1;
-					this.listBox_audios.SelectedIndex = this.listBox_audios.Items.Count - 1;
-
-					LogCollection.Log($"{loadedCount} audio samples loaded from directory.");
-				}
-			}
-			else
+            else if (ModifierKeys.HasFlag(Keys.Shift) & !ModifierKeys.HasFlag(Keys.Control))
             {
+                // Load Entire Directory
+                using var fbd = new FolderBrowserDialog()
+                {
+                    Description = "Select Directory Containing Audio Files",
+                    UseDescriptionForTitle = true,
+                    InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic)
+                };
+                if (fbd.ShowDialog(this) == DialogResult.OK)
+                {
+                    var dirPath = fbd.SelectedPath;
+                    // Diese Methode fügt bereits in AudioC.Audios ein:
+                    var loadedAudioObjs = await this.AudioC.LoadDirectoryAsync(dirPath);
+
+                    // Nicht erneut hinzufügen! Nur Anzahl ermitteln:
+                    int loadedCount = loadedAudioObjs.Count(a => a != null);
+
+                    // Auswahl ans Ende setzen
+                    this.listBox_audios.SelectedIndex = -1;
+                    this.listBox_audios.SelectedIndex = this.listBox_audios.Items.Count - 1;
+
+                    LogCollection.Log($"{loadedCount} audio samples loaded from directory.");
+                }
+            }
+            else
+            {
+                string initialDir = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
+
+                if (ModifierKeys.HasFlag(Keys.Shift) && ModifierKeys.HasFlag(Keys.Control))
+                {
+                    initialDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources");
+                }
+
                 using var ofd = new OpenFileDialog()
                 {
                     Filter = "Audio Files|*.wav;*.mp3;*.flac",
                     Title = "Select Audio File(s)",
                     Multiselect = true,
-                    InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
+                    InitialDirectory = initialDir,
                     RestoreDirectory = true
                 };
                 if (ofd.ShowDialog(this) == DialogResult.OK)
@@ -1462,10 +1463,10 @@ namespace CSharpSamplesCutter.Forms
                 {
                     await this.AudioC_res.ClearAsync();
                     active.Refresh();
-				}
-			}
+                }
+            }
 
-			var selectedAudioObjs = active.SelectedItems.Cast<AudioObj>().ToList();
+            var selectedAudioObjs = active.SelectedItems.Cast<AudioObj>().ToList();
             if (selectedAudioObjs.Count == 0)
             {
                 LogCollection.Log("No audio samples selected to remove.");
@@ -1588,7 +1589,61 @@ namespace CSharpSamplesCutter.Forms
 
 
 
+
         // ----- Drag & Drop -----
+        private void WindowMain_DragEnter(object? sender, DragEventArgs e)
+        {
+            if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true)
+            {
+                e.Effect = DragDropEffects.Copy;
+            }
+            else
+            {
+                e.Effect = DragDropEffects.None;
+            }
+        }
+
+        // Form DragDrop (wenn NICHT über einer ListBox, dann in Main laden)
+        private async void WindowMain_DragDrop(object? sender, DragEventArgs e)
+        {
+            try
+            {
+                if (e.Data?.GetDataPresent(DataFormats.FileDrop) != true)
+                {
+                    return;
+                }
+
+                var dropped = (string[]?) e.Data.GetData(DataFormats.FileDrop);
+                if (dropped == null || dropped.Length == 0)
+                {
+                    return;
+                }
+
+                // Position prüfen: liegt der Drop innerhalb einer ListBox? Dann gezielt in deren Collection.
+                Point clientPoint = this.PointToClient(new Point(e.X, e.Y));
+                bool overMain = this.listBox_audios.Bounds.Contains(clientPoint);
+                bool overReserve = this.listBox_reserve.Bounds.Contains(clientPoint);
+
+                if (overMain)
+                {
+                    await this.ImportDroppedItemsAsync(dropped, this.AudioC);
+                }
+                else if (overReserve)
+                {
+                    await this.ImportDroppedItemsAsync(dropped, this.AudioC_res);
+                }
+                else
+                {
+                    // Default: Main
+                    await this.ImportDroppedItemsAsync(dropped, this.AudioC);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogCollection.Log($"Drop: Fehler beim Import: {ex.Message}");
+            }
+        }
+
         private void ListBox_MouseDown_Drag(object? sender, MouseEventArgs e)
         {
             if (sender is not ListBox lb)
@@ -1607,23 +1662,23 @@ namespace CSharpSamplesCutter.Forms
                 int idx = lb.IndexFromPoint(e.Location);
                 if (idx >= 0 && lb.SelectedIndex == idx)
                 {
-                    this._isDragInitiated = true;
-                    this._dragStartIndex = idx;
-                    this._dragSourceListBox = lb;
+                    this.isDragInitiated = true;
+                    this.dragStartIndex = idx;
+                    this.dragSourceListBox = lb;
                 }
             }
             else
             {
                 // Bei Ctrl: normales Verhalten (Mehrfachauswahl durch Clicks), kein Reorder.
-                this._isDragInitiated = false;
-                this._dragStartIndex = -1;
-                this._dragSourceListBox = null;
+                this.isDragInitiated = false;
+                this.dragStartIndex = -1;
+                this.dragSourceListBox = null;
             }
         }
 
         private void ListBox_MouseMove_Drag(object? sender, MouseEventArgs e)
         {
-            if (!this._isDragInitiated || this._dragSourceListBox == null)
+            if (!this.isDragInitiated || this.dragSourceListBox == null)
             {
                 return;
             }
@@ -1634,11 +1689,11 @@ namespace CSharpSamplesCutter.Forms
             }
 
             // Start des Drag&Drop
-            this._isDragInitiated = false; // Nur einmal starten
-            var item = this._dragSourceListBox.SelectedItem;
+            this.isDragInitiated = false; // Nur einmal starten
+            var item = this.dragSourceListBox.SelectedItem;
             if (item != null)
             {
-                this._dragSourceListBox.DoDragDrop(item, DragDropEffects.Move);
+                this.dragSourceListBox.DoDragDrop(item, DragDropEffects.Move);
             }
         }
 
@@ -1648,7 +1703,15 @@ namespace CSharpSamplesCutter.Forms
             {
                 return;
             }
-            // Nur Move erlauben, wenn Quelle eine ListBox ist und KEIN Ctrl gedrückt (Ctrl reserviert für Multi-Select)
+
+            // Externer File-/Ordner-Drop?
+            if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true)
+            {
+                e.Effect = DragDropEffects.Copy;
+                return;
+            }
+
+            // Interner AudioObj-Reorder (bestehend)
             if (!ModifierKeys.HasFlag(Keys.Control) && e.Data?.GetDataPresent(typeof(AudioObj)) == true)
             {
                 e.Effect = DragDropEffects.Move;
@@ -1659,14 +1722,29 @@ namespace CSharpSamplesCutter.Forms
             }
         }
 
-        private void ListBox_DragDrop(object? sender, DragEventArgs e)
+        private async void ListBox_DragDrop(object? sender, DragEventArgs e)
         {
             if (sender is not ListBox targetListBox)
             {
                 return;
             }
 
-            if (this._dragSourceListBox == null)
+            // Externer File-/Ordner-Drop
+            if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true)
+            {
+                var dropped = (string[]?) e.Data.GetData(DataFormats.FileDrop);
+                if (dropped == null || dropped.Length == 0)
+                {
+                    return;
+                }
+
+                var targetCollection = targetListBox == this.listBox_reserve ? this.AudioC_res : this.AudioC;
+                await this.ImportDroppedItemsAsync(dropped, targetCollection);
+                return;
+            }
+
+            // Interner Reorder (bestehend)
+            if (this.dragSourceListBox == null)
             {
                 return;
             }
@@ -1689,14 +1767,13 @@ namespace CSharpSamplesCutter.Forms
             }
 
             // Nur wenn gleiche ListBox und einzelnes Item
-            if (targetListBox == this._dragSourceListBox && this._dragStartIndex >= 0 && dropIndex >= 0 && targetListBox.SelectedIndices.Count == 1)
+            if (targetListBox == this.dragSourceListBox && this.dragStartIndex >= 0 && dropIndex >= 0 && targetListBox.SelectedIndices.Count == 1)
             {
                 bool isMain = targetListBox == this.listBox_audios;
                 if (isMain)
                 {
-                    // Mapping wegen SkipTracks
                     int skip = this.SkipTracks;
-                    int actualFrom = skip + this._dragStartIndex;
+                    int actualFrom = skip + this.dragStartIndex;
                     int actualTo = skip + dropIndex;
                     ReorderInCollection(this.AudioC.Audios, actualFrom, actualTo);
                     this.RebindAudioListForSkip();
@@ -1704,14 +1781,14 @@ namespace CSharpSamplesCutter.Forms
                 }
                 else
                 {
-                    ReorderInCollection(this.AudioC_res.Audios, this._dragStartIndex, dropIndex);
+                    ReorderInCollection(this.AudioC_res.Audios, this.dragStartIndex, dropIndex);
                     targetListBox.SelectedIndex = Math.Min(dropIndex, targetListBox.Items.Count - 1);
                 }
             }
 
-            this._dragSourceListBox = null;
-            this._dragStartIndex = -1;
-            this._isDragInitiated = false;
+            this.dragSourceListBox = null;
+            this.dragStartIndex = -1;
+            this.isDragInitiated = false;
         }
 
         private static void ReorderInCollection(IList<AudioObj> list, int from, int to)
@@ -1921,6 +1998,19 @@ namespace CSharpSamplesCutter.Forms
             }
         }
 
+        private void button_loop_Click(object sender, EventArgs e)
+        {
+            // 8 steps: 1./1 - 1 / 64
+            double[] loopOptions = [1.0, 0.5, 0.25, 0.125, 0.0625, 0.03125, 0.015625];
+            this.button_loop.Tag = this.button_loop.Tag is double currentLoop ? currentLoop : 0.0;
+
+            // When enabled, cycle through options, else enable and set first option (1.0) if disabled and something selected. ForeColor set to Green and Text to the option (fraction like 1/4)
+            // If nothing selected, stay disabled
+            // If Ctrl down, either way, disable. ForeColor set to Blackand Text to "↺"
+
+
+        }
+
 
 
 
@@ -1967,11 +2057,50 @@ namespace CSharpSamplesCutter.Forms
             {
                 return;
             }
-            this.viewOffsetFrames = (long) this.hScrollBar_scroll.Value * this.SamplesPerPixel;
-            track.ScrollOffset = this.viewOffsetFrames; // SAVE: Scrollbar → Track
-            this.ClampViewOffset();
-            this.UpdateViewingElements();
+
+            if (this.suppressScrollEvent)
+            {
+                return;
+            }
+
+            // Während Playback + Sync weiterhin gesperrt
+            if (track.PlayerPlaying && this.checkBox_sync.Checked)
+            {
+                this.suppressScrollEvent = true;
+                try
+                {
+                    int target = this.FramesToScrollValue(this.viewOffsetFrames);
+                    int maxAllowed = Math.Max(this.hScrollBar_scroll.Minimum, this.hScrollBar_scroll.Maximum - this.hScrollBar_scroll.LargeChange + 1);
+                    int clamped = Math.Clamp(target, this.hScrollBar_scroll.Minimum, maxAllowed);
+                    e.NewValue = clamped;
+                    if (this.hScrollBar_scroll.Value != clamped)
+                    {
+                        this.hScrollBar_scroll.Value = clamped;
+                    }
+                }
+                finally { this.suppressScrollEvent = false; }
+                return;
+            }
+
+            try
+            {
+                this.isUserScroll = true;
+                this.viewOffsetFrames = (long) this.hScrollBar_scroll.Value * Math.Max(1, this.SamplesPerPixel);
+                this.ClampViewOffset();
+                track.ScrollOffset = this.viewOffsetFrames;
+                _ = this.RedrawWaveformImmediateAsync(); // NEU: direkt zeichnen
+            }
+            finally
+            {
+                this.isUserScroll = false;
+            }
+
+            this.UpdateViewingElements(skipScrollbarSync: true);
         }
+
+        private int FramesToScrollValue(long frames) =>
+            (int) Math.Clamp(frames / Math.Max(1, (long) this.SamplesPerPixel), this.hScrollBar_scroll.Minimum,
+                            Math.Max(this.hScrollBar_scroll.Minimum, this.hScrollBar_scroll.Maximum - this.hScrollBar_scroll.LargeChange + 1));
 
         private void numericUpDown_samplesPerPixel_ValueChanged(object sender, EventArgs e)
         {
@@ -1983,10 +2112,12 @@ namespace CSharpSamplesCutter.Forms
 
             track.LastSamplesPerPixel = this.SamplesPerPixel;
 
-            // Beim Zoom per NumericUpDown: Offset gültig halten und speichern
+            // Offset clampen & persistieren
             this.ClampViewOffset();
             this.RecalculateScrollBar();
-            track.ScrollOffset = this.viewOffsetFrames; // SAVE
+            track.ScrollOffset = this.viewOffsetFrames;
+
+            _ = this.RedrawWaveformImmediateAsync(); // NEU: sofortige Aktualisierung (verhindert sichtbaren „Sprung“)
             this.UpdateViewingElements();
         }
 
@@ -2023,6 +2154,93 @@ namespace CSharpSamplesCutter.Forms
             dialog.ShowDialog(this);
         }
 
+        private async Task ImportDroppedItemsAsync(IEnumerable<string> paths, AudioCollection targetCollection)
+        {
+            if (paths == null) return;
+            var distinctPaths = paths.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct().ToArray();
+            if (distinctPaths.Length == 0) return;
+
+            List<string> fileCandidates = new();
+            foreach (var p in distinctPaths)
+            {
+                try
+                {
+                    if (File.Exists(p))
+                    {
+                        fileCandidates.Add(p);
+                    }
+                    else if (Directory.Exists(p))
+                    {
+                        // Alle unterstützten Files im Ordner (nicht rekursiv – bei Bedarf rekursiv erweitern)
+                        var files = Directory.EnumerateFiles(p)
+                            .Where(IsAudioFileExtension)
+                            .ToArray();
+                        fileCandidates.AddRange(files);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogCollection.Log($"Drop: Zugriff auf Pfad fehlgeschlagen: {p} ({ex.Message})");
+                }
+            }
+
+            if (fileCandidates.Count == 0)
+            {
+                LogCollection.Log("Drop: Keine validen Audio-Dateien gefunden.");
+                return;
+            }
+
+            int added = 0;
+            var loadTasks = fileCandidates.Select(async file =>
+            {
+                try
+                {
+                    var verified = AudioCollection.VerifyAudioFile(file);
+                    if (verified == null)
+                    {
+                        return false;
+                    }
+                    var audio = await AudioObj.FromFileAsync(verified);
+                    if (audio == null)
+                    {
+                        return false;
+                    }
+                    // Duplicate vermeiden (Id oder Dateiname)
+                    if (!targetCollection.Audios.Any(a => string.Equals(a.DisplayName, audio.DisplayName, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        targetCollection.Audios.Add(audio);
+                        return true;
+                    }
+                    return false;
+                }
+                catch (Exception ex)
+                {
+                    LogCollection.Log($"Drop: Fehler beim Laden: {file} ({ex.Message})");
+                    return false;
+                }
+            });
+
+            var results = await Task.WhenAll(loadTasks);
+            added = results.Count(r => r);
+
+            if (added > 0)
+            {
+                LogCollection.Log($"Drop: {added} Audio-Datei(en) importiert in {(ReferenceEquals(targetCollection, this.AudioC) ? "Main" : "Reserve")}.");
+                if (ReferenceEquals(targetCollection, this.AudioC))
+                {
+                    this.RebindAudioListForSkip();
+                }
+                else
+                {
+                    this.listBox_reserve.Refresh();
+                }
+            }
+            else
+            {
+                LogCollection.Log("Drop: Keine neuen Audio-Dateien importiert (evtl. alle bereits vorhanden).");
+            }
+        }
+
 
 
         // ----- Processing -----
@@ -2036,19 +2254,19 @@ namespace CSharpSamplesCutter.Forms
                 {
                     // Get Results
                     var results = loadDialog.Results;
-                    int beforeCount = this.AudioC.Audios.Count;
-                    foreach (var item in results)
+                    if (this.SelectedCollectionListBox == this.listBox_reserve)
                     {
-                        this.AudioC.Audios.Add(item);
+                        foreach (var item in results)
+                        {
+                            this.AudioC.Audios.Add(item);
+                        }
                     }
-
-                    // Set SkipTracks to first added index - 1 so new items appear first
-                    if (this.AudioC.Audios.Count > beforeCount)
+                    else
                     {
-                        int firstIndex = beforeCount;
-                        int desiredSkip = Math.Max(0, firstIndex - 1);
-                        this.numericUpDown_skipTracks.Maximum = this.AudioC.Audios.Count;
-                        this.numericUpDown_skipTracks.Value = Math.Min(desiredSkip, (int) this.numericUpDown_skipTracks.Maximum);
+                        foreach (var item in results)
+                        {
+                            this.AudioC_res.Audios.Add(item);
+                        }
                     }
 
                     // Refresh ListBox
@@ -2085,10 +2303,12 @@ namespace CSharpSamplesCutter.Forms
                     // Refresh ListBox
                     this.listBox_audios.SelectedIndex = -1;
                     this.listBox_audios.SelectedIndex = this.listBox_audios.Items.Count - 1;
-				}
+                }
 
-			}
+            }
         }
+
+
 
 
         // ----- Scanning -----
@@ -2106,6 +2326,7 @@ namespace CSharpSamplesCutter.Forms
             LogCollection.Log($"Scanned key for {track.Name}: {key}");
 
             this.textBox_scannedKey.Text = key;
+            this.UpdateSelectedCollectionListBox();
         }
 
         private async void button_timingScan_Click(object sender, EventArgs e)
@@ -2121,6 +2342,7 @@ namespace CSharpSamplesCutter.Forms
             track.ScannedTiming = timing;
             LogCollection.Log($"Scanned timing for {track.Name}: {timing:F2}");
             this.textBox_scannedTiming.Text = this.GetTimingFractionString(timing);
+            this.UpdateSelectedCollectionListBox();
         }
 
         private async void button_bpmScan_Click(object sender, EventArgs e)
@@ -2140,7 +2362,10 @@ namespace CSharpSamplesCutter.Forms
             }
             LogCollection.Log($"Scanned BPM for {track.Name}: {bpm:F2}");
             this.textBox_scannedBpm.Text = bpm > 0 ? bpm.ToString("F2") : "N/A";
+            this.UpdateSelectedCollectionListBox();
         }
+
+
 
 
         // Private helpers
@@ -2228,35 +2453,94 @@ namespace CSharpSamplesCutter.Forms
             return frameIndex > 0 ? frameIndex / (double) this.SelectedTrack.SampleRate : 0.0;
         }
 
-        private void UpdateViewingElements()
+        private void UpdateViewingElements(bool skipScrollbarSync = false)
+        {
+            try
+            {
+                var track = this.SelectedTrack;
+                if (track == null)
+                {
+                    this.button_playback.Text = "▶";
+                    this.button_pause.Enabled = false;
+                    this.button_move.Enabled = false;
+                    this.label_sampleArea.Text = "No sample area available or selected.";
+                    this.label_sampleAtCursor.Text = "Sample at Cursor: -";
+                    return;
+                }
+
+                this.button_playback.Text = track.Playing ? "■" : "▶";
+                this.button_pause.Enabled = track.Playing || track.Paused;
+                this.button_pause.ForeColor = track.Paused ? Color.DarkGray : Color.Black;
+                this.button_move.Enabled = true;
+
+
+                this.hScrollBar_scroll.Enabled = true;
+                this.hScrollBar_scroll.Cursor = track.PlayerPlaying ? Cursors.NoMoveHoriz : Cursors.Default;
+
+                // Scrollbar synchronisieren, aber nicht wenn:
+                //  - gerade User scrollt (_isUserScroll)
+                //  - explizit übersprungen (skipScrollbarSync)
+                if (!skipScrollbarSync && !this.isUserScroll)
+                {
+                    this.RecalculateScrollBar();
+                }
+
+                int ch = Math.Max(1, track.Channels);
+                long frameIndex = this.GetFrameUnderCursor();
+                double timeSeconds = frameIndex / (double) track.SampleRate;
+
+                this.label_sampleArea.Text =
+                    track.SelectionStart >= 0 && track.SelectionEnd >= 0
+                        ? $"Sample Area: {Math.Min(track.SelectionStart, track.SelectionEnd)} - {Math.Max(track.SelectionStart, track.SelectionEnd)} (Duration: {TimeSpan.FromSeconds(Math.Abs(track.SelectionEnd - track.SelectionStart) / (double) (track.SampleRate * ch)).ToString("hh\\:mm\\:ss\\.fff")})"
+                        : "No sample area available or selected.";
+
+                var ts = TimeSpan.FromSeconds(timeSeconds);
+                this.label_sampleAtCursor.Text =
+                    $"Sample at {(this.CursorOverPictureBox ? "Cursor" : "Caret")}: {frameIndex} ({ts.Hours}:{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D3} sec.)";
+                this.label_sampleAtCursor.ForeColor = this.CursorOverPictureBox ? Color.Blue : Color.Black;
+            }
+            catch (Exception ex)
+            {
+                LogCollection.Log(ex);
+            }
+        }
+
+        private async Task RedrawWaveformImmediateAsync()
         {
             var track = this.SelectedTrack;
             if (track == null)
             {
-                this.button_playback.Text = "▶";
-                this.button_pause.Enabled = false;
-                this.button_move.Enabled = false;
-                this.label_sampleArea.Text = "No sample area available or selected.";
-                this.label_sampleAtCursor.Text = "Sample at Cursor: -";
                 return;
             }
 
-            this.button_playback.Text = track.Playing ? "■" : "▶";
-            this.button_pause.Enabled = track.Playing || track.Paused;
-            this.button_pause.ForeColor = track.Paused ? Color.DarkGray : Color.Black;
-            this.button_move.Enabled = true;
+            try
+            {
+                int spp = this.SamplesPerPixel;
+                Bitmap bmp = await track.DrawWaveformAsync(
+                    this.pictureBox_wave.Width,
+                    this.pictureBox_wave.Height,
+                    spp,
+                    this.DrawEachChannel,
+                    this.CaretWidth,
+                    this.viewOffsetFrames, // expliziter Offset
+                    this.HueEnabled ? this.HueColor : this.WaveGraphColor,
+                    this.WaveBackColor,
+                    this.CaretColor,
+                    this.SelectionColor,
+                    this.SmoothenWaveform,
+                    this.TimingMarkerInterval,
+                    this.CaretPosition,
+                    2);
 
-            // Scrollbar auf Basis des aktuellen Offsets/SPP neu anpassen
-            this.RecalculateScrollBar();
-
-            int ch = Math.Max(1, track.Channels);
-            long frameIndex = this.GetFrameUnderCursor();
-            double timeSeconds = frameIndex / (double) track.SampleRate;
-            this.label_sampleArea.Text = track.SelectionStart >= 0 && track.SelectionEnd >= 0
-                ? $"Sample Area: {Math.Min(track.SelectionStart, track.SelectionEnd)} - {Math.Max(track.SelectionStart, track.SelectionEnd)} (Duration: {TimeSpan.FromSeconds(Math.Abs(track.SelectionEnd - track.SelectionStart) / (double) (track.SampleRate * ch)).ToString("hh\\:mm\\:ss\\.fff")})"
-                : "No sample area available or selected.";
-            var ts = TimeSpan.FromSeconds(timeSeconds);
-            this.label_sampleAtCursor.Text = $"Sample at {(this.CursorOverPictureBox ? "Cursor" : "Caret")}: {frameIndex} ({ts.Hours}:{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D3} sec.)"; this.label_sampleAtCursor.ForeColor = this.CursorOverPictureBox ? Color.Blue : Color.Black;
+                if (!this.pictureBox_wave.IsDisposed)
+                {
+                    this.pictureBox_wave.Image = bmp;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogCollection.Log($"Redraw error: {ex.Message}");
+            }
         }
 
         private void UpdateUndoLabel()
@@ -2344,6 +2628,87 @@ namespace CSharpSamplesCutter.Forms
             e.DrawFocusRectangle();
         }
 
+        private void RecalculateScrollBar()
+        {
+            var track = this.SelectedTrack;
+            if (track == null || this.pictureBox_wave.Width <= 0)
+            {
+                return;
+            }
+
+            int spp = Math.Max(1, this.SamplesPerPixel);
+            int ch = Math.Max(1, track.Channels);
+            long totalFrames = Math.Max(0, track.Length / ch);
+            long viewFrames = (long) this.pictureBox_wave.Width * spp;
+            long maxOffsetFrames = Math.Max(0, totalFrames - viewFrames);
+
+            int maxValue = (int) Math.Max(0, maxOffsetFrames / spp);
+            int large = Math.Max(1, (int) (viewFrames / spp));
+            int small = Math.Max(1, large / 10);
+
+            int targetValue = (int) Math.Clamp(this.viewOffsetFrames / spp, 0, maxValue);
+            int maxAllowed = Math.Max(0, (maxValue + large - 1) - large + 1); // standard WinForms-Pattern
+
+            bool needApply = this.hScrollBar_scroll.LargeChange != large
+                          || this.hScrollBar_scroll.SmallChange != small
+                          || this.hScrollBar_scroll.Maximum != (maxValue + large - 1)
+                          || this.hScrollBar_scroll.Value != Math.Min(targetValue, maxAllowed);
+
+            if (!needApply)
+            {
+                return;
+            }
+
+            this.suppressScrollEvent = true;
+            try
+            {
+                this.hScrollBar_scroll.Minimum = 0;
+                this.hScrollBar_scroll.LargeChange = large;
+                this.hScrollBar_scroll.SmallChange = small;
+                this.hScrollBar_scroll.Maximum = maxValue + large - 1;
+
+                int newValue = Math.Min(targetValue, Math.Max(0, this.hScrollBar_scroll.Maximum - this.hScrollBar_scroll.LargeChange + 1));
+                newValue = Math.Max(this.hScrollBar_scroll.Minimum, newValue);
+                if (this.hScrollBar_scroll.Value != newValue)
+                {
+                    this.hScrollBar_scroll.Value = newValue;
+                }
+            }
+            finally
+            {
+                this.suppressScrollEvent = false;
+            }
+        }
+
+        private bool IsEditingContext()
+        {
+            Control? c = this.ActiveControl;
+            while (c != null)
+            {
+                if (c is TextBoxBase or NumericUpDown or ComboBox or ListView or TreeView or DataGridView or RichTextBox or MaskedTextBox)
+                {
+                    return true;
+                }
+
+                if (c is UpDownBase)
+                {
+                    return true;
+                }
+                // GroupBox selbst: wenn Fokus in ihr liegt, reicht das – wir prüfen nur konkrete Edit-Controls
+                c = c.Parent;
+            }
+            return false;
+        }
+
+        private bool IsAudioFileExtension(string path)
+        {
+            try
+            {
+                string ext = Path.GetExtension(path).ToLowerInvariant();
+                return ext is ".wav" or ".mp3" or ".flac";
+            }
+            catch { return false; }
+        }
 
 
 
@@ -2469,11 +2834,11 @@ namespace CSharpSamplesCutter.Forms
             // Anker aktualisieren
             if (listBox == this.listBox_audios)
             {
-                this._anchorIndexMain = listBox.SelectedIndex >= 0 ? listBox.SelectedIndex : null;
+                this.anchorIndexMain = listBox.SelectedIndex >= 0 ? listBox.SelectedIndex : null;
             }
             else if (listBox == this.listBox_reserve)
             {
-                this._anchorIndexReserve = listBox.SelectedIndex >= 0 ? listBox.SelectedIndex : null;
+                this.anchorIndexReserve = listBox.SelectedIndex >= 0 ? listBox.SelectedIndex : null;
             }
         }
 
@@ -2541,15 +2906,81 @@ namespace CSharpSamplesCutter.Forms
             // Anker für evtl. Shift-Auswahl aktualisieren
             if (listBox == this.listBox_audios)
             {
-                this._anchorIndexMain = newIndex >= 0 ? newIndex : null;
+                this.anchorIndexMain = newIndex >= 0 ? newIndex : null;
             }
             else if (listBox == this.listBox_reserve)
             {
-                this._anchorIndexReserve = newIndex >= 0 ? newIndex : null;
+                this.anchorIndexReserve = newIndex >= 0 ? newIndex : null;
             }
         }
 
+        private static bool TryInvalidateUpdate(ListBox lb)
+        {
+            try { lb.Invalidate(); lb.Update(); return true; } catch { return false; }
+        }
 
+        private static bool TryReselectInvalidateUpdate(ListBox lb)
+        {
+            try
+            {
+                if (lb.IsDisposed)
+                {
+                    return false;
+                }
+
+                // Reselection erzwingen, damit SelectedIndexChanged / SelectionChangeCommitted etc. feuern
+                switch (lb.SelectionMode)
+                {
+                    case System.Windows.Forms.SelectionMode.None:
+                        // Nichts zu reselektieren
+                        break;
+
+                    case System.Windows.Forms.SelectionMode.One:
+                        {
+                            int idx = lb.SelectedIndex;
+                            if (idx >= 0)
+                            {
+                                lb.ClearSelected();
+                                if (idx >= lb.Items.Count)
+                                {
+                                    idx = lb.Items.Count - 1;
+                                }
+
+                                if (idx >= 0)
+                                {
+                                    lb.SelectedIndex = idx;
+                                }
+                            }
+                            break;
+                        }
+
+                    default: // MultiSimple / MultiExtended
+                        {
+                            var selected = lb.SelectedIndices.Cast<int>().ToArray();
+                            lb.ClearSelected();
+                            foreach (var i in selected)
+                            {
+                                if (i >= 0 && i < lb.Items.Count)
+                                {
+                                    lb.SetSelected(i, true);
+                                }
+                            }
+                            break;
+                        }
+                }
+
+                // Neu zeichnen (performanter als Refresh)
+                lb.Invalidate();
+                lb.Update();
+
+                return true;
+            }
+            catch
+            {
+                // Optional: Logging
+                return false;
+            }
+        }
 
     }
 }
