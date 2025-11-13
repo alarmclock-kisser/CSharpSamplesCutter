@@ -207,153 +207,115 @@ namespace CSharpSamplesCutter.Forms
             };
         }
 
-        private async Task UpdateTimer_TickAsync()
-        {
-            try
-            {
-                var spp = this.SamplesPerPixel;
-                var track = this.SelectedTrack;
-                if (track == null)
-                {
-                    this.pictureBox_wave.Image = null;
-                    return;
-                }
+		private async Task UpdateTimer_TickAsync()
+		{
+			try
+			{
+				var spp = this.SamplesPerPixel;
+				var track = this.SelectedTrack;
+				if (track == null)
+				{
+					this.pictureBox_wave.Image = null;
+					return;
+				}
 
-                this.ClampViewOffset();
+				this.ClampViewOffset();
 
-                if (this.pictureBox_wave.InvokeRequired || this.textBox_timestamp.InvokeRequired)
-                {
-                    var tcs = new TaskCompletionSource<object?>();
-                    this.pictureBox_wave.BeginInvoke(new Action(async () =>
-                    {
-                        try { await this.UpdateTimer_TickAsync(); tcs.TrySetResult(null); }
-                        catch (Exception ex) { tcs.TrySetException(ex); }
-                    }));
-                    await tcs.Task;
-                    return;
-                }
+				if (this.pictureBox_wave.InvokeRequired || this.textBox_timestamp.InvokeRequired)
+				{
+					var tcs = new TaskCompletionSource<object?>();
+					this.pictureBox_wave.BeginInvoke(new Action(async () =>
+					{
+						try { await this.UpdateTimer_TickAsync(); tcs.TrySetResult(null); }
+						catch (Exception ex) { tcs.TrySetException(ex); }
+					}));
+					await tcs.Task;
+					return;
+				}
 
-                long totalFrames = Math.Max(1, track.Length / Math.Max(1, track.Channels));
-                // --- Caret immer auf echte Abspielposition setzen ---
-                float liveCaretPos = 0f;
-                if (track.PlayerPlaying)
-                {
-                    liveCaretPos = (float)track.Position / (float)totalFrames;
-                    this.SetCaretPosition(liveCaretPos);
-                }
+				bool follow = this.checkBox_sync.Checked && track.PlayerPlaying;
 
-                bool follow = (this.checkBox_sync.Checked || this.IsPlaybackForceFollow(track.Id)) && track.PlayerPlaying;
+				if (follow)
+				{
+					int sppLocal = Math.Max(1, spp);
+					long viewFrames = (long) this.pictureBox_wave.Width * sppLocal;
 
-                // Force-follow: harte Zentrierung um den Caret bei jedem Tick
-                if (!this.IsUserScroll && this.IsPlaybackForceFollow(track.Id) && track.PlayerPlaying)
-                {
-                    long caret = track.Position;
-                    long viewFramesNow = (long)this.pictureBox_wave.Width * Math.Max(1, spp);
-                    long total = totalFrames;
-                    long maxOffset = Math.Max(0, total - viewFramesNow);
+					int ch = Math.Max(1, track.Channels);
+					long totalFrames = Math.Max(1, track.Length / ch);
+					long viewEndLimit = (track.LoopEndFrames > track.LoopStartFrames)
+						? track.LoopEndFrames
+						: totalFrames;
 
-                    // Verwende aktuellen Caret-Slider als relative Bildschirmposition (Fallback 0.25f)
-                    float caretPosClamped = this.CaretPosition > 0f ? Math.Clamp(this.CaretPosition, 0f, 1f) : 0.25f;
-                    long caretInView = (long)Math.Round(viewFramesNow * caretPosClamped);
-                    long wanted = Math.Clamp(caret - caretInView, 0, maxOffset);
-                    if (wanted != this.ViewOffsetFrames)
-                    {
-                        this.ViewOffsetFrames = wanted;
-                        this.SuppressScrollEvent = true;
-                        try { this.RecalculateScrollBar(); } finally { this.SuppressScrollEvent = false; }
-                        track.ScrollOffset = this.ViewOffsetFrames;
-                    }
-                }
+					long maxOffset = Math.Max(0, viewEndLimit - viewFrames);
 
-                if (follow)
-                {
-                    long viewFrames = (long) this.pictureBox_wave.Width * Math.Max(1, spp);
-                    long leftMargin = 8L * Math.Max(1, spp);
-                    long rightMargin = 16L * Math.Max(1, spp);
+					float caretPosClamped = Math.Clamp(this.CaretPosition, 0f, 1f);
+					long caretInViewFrames = (long) Math.Round(viewFrames * caretPosClamped);
+					long caretFrame = track.Position;
 
-                    long caret = track.Position;
-                    long start = this.ViewOffsetFrames;
-                    long viewStartLimit = 0;
-                    long viewEndLimit = totalFrames;
+					// Direkt ankern: gewünschter Offset so, dass Caret an definierter Position bleibt
+					long wanted = Math.Clamp(caretFrame - caretInViewFrames, 0, maxOffset);
 
-                    long maxOffset = Math.Max(0, viewEndLimit - viewFrames);
+					if (wanted != this.ViewOffsetFrames)
+					{
+						this.ViewOffsetFrames = wanted;
+						this.ClampViewOffset();
 
-                    if (caret < start + leftMargin)
-                    {
-                        start = Math.Max(viewStartLimit, caret - leftMargin);
-                    }
-                    else if (caret > start + viewFrames - rightMargin)
-                    {
-                        start = Math.Max(viewStartLimit, caret - (viewFrames - rightMargin));
-                    }
+						this.SuppressScrollEvent = true;
+						try { this.RecalculateScrollBar(); }
+						finally { this.SuppressScrollEvent = false; }
 
-                    float caretPosClamped = Math.Clamp(this.CaretPosition, 0f, 1f);
-                    long caretInViewFrames = (long) Math.Round(viewFrames * caretPosClamped);
-                    long computedOffset = Math.Clamp(caret - caretInViewFrames, viewStartLimit, maxOffset);
+						track.ScrollOffset = this.ViewOffsetFrames;
+					}
+				}
+				else if (!this.IsUserScroll && track.ScrollOffset != this.ViewOffsetFrames)
+				{
+					this.ViewOffsetFrames = track.ScrollOffset;
+					this.ClampViewOffset();
 
-                    long wanted = Math.Max(start, computedOffset);
-                    wanted = Math.Clamp(wanted, viewStartLimit, maxOffset);
+					this.SuppressScrollEvent = true;
+					try { this.RecalculateScrollBar(); }
+					finally { this.SuppressScrollEvent = false; }
+				}
 
-                    if (wanted != this.ViewOffsetFrames)
-                    {
-                        this.ViewOffsetFrames = wanted;
-                        this.ClampViewOffset();
+				if (this.HueEnabled)
+				{
+					this.GetNextHue(spp);
+				}
 
-                        this.SuppressScrollEvent = true;
-                        try { this.RecalculateScrollBar(); }
-                        finally { this.SuppressScrollEvent = false; }
+				long? offsetFrames = this.viewOffsetFrames;
 
-                        track.ScrollOffset = this.ViewOffsetFrames;
-                    }
-                }
-                else if (!this.IsUserScroll && track.ScrollOffset != this.ViewOffsetFrames)
-                {
-                    this.ViewOffsetFrames = track.ScrollOffset;
-                    this.ClampViewOffset();
+				Bitmap bmp = await track.DrawWaveformAsync(
+					this.pictureBox_wave.Width,
+					this.pictureBox_wave.Height,
+					spp,
+					this.DrawEachChannel,
+					this.CaretWidth,
+					offsetFrames,
+					this.HueEnabled ? this.HueColor : this.WaveGraphColor,
+					this.WaveBackColor,
+					this.CaretColor,
+					this.SelectionColor,
+					this.SmoothenWaveform,
+					this.TimingMarkerInterval,
+					this.CaretPosition,
+					2);
 
-                    this.SuppressScrollEvent = true;
-                    try { this.RecalculateScrollBar(); }
-                    finally { this.SuppressScrollEvent = false; }
-                }
+				this.textBox_timestamp.Text =
+					((track.PlayerPlaying || track.Paused) ? track.CurrentTime : track.Duration).ToString("hh\\:mm\\:ss\\.fff");
 
-                if (this.HueEnabled)
-                {
-                    this.GetNextHue(spp);
-                }
+				this.pictureBox_wave.Image = bmp;
+			}
+			catch (Exception ex)
+			{
+				LogCollection.Log($"Error in UpdateTimer_TickAsync: {ex.Message}");
+			}
+			finally
+			{
+				this.UpdateViewingElements(skipScrollbarSync: true);
+			}
+		}
 
-                long? offsetFrames = this.viewOffsetFrames;
-
-                Bitmap bmp = await track.DrawWaveformAsync(
-                    this.pictureBox_wave.Width,
-                    this.pictureBox_wave.Height,
-                    spp,
-                    this.DrawEachChannel,
-                    this.CaretWidth,
-                    offsetFrames,
-                    this.HueEnabled ? this.HueColor : this.WaveGraphColor,
-                    this.WaveBackColor,
-                    this.CaretColor,
-                    this.SelectionColor,
-                    this.SmoothenWaveform,
-                    this.TimingMarkerInterval,
-                    (track.PlayerPlaying ? Math.Clamp(liveCaretPos, 0f, 1f) : this.CaretPosition),
-                    2);
-
-                this.textBox_timestamp.Text = ((track.PlayerPlaying || track.Paused) ? track.CurrentTime : track.Duration).ToString("hh\\:mm\\:ss\\.fff");
-
-                this.pictureBox_wave.Image = bmp;
-            }
-            catch (Exception ex)
-            {
-                LogCollection.Log($"Error in UpdateTimer_TickAsync: {ex.Message}");
-            }
-            finally
-            {
-                this.UpdateViewingElements(skipScrollbarSync: true);
-            }
-        }
-
-        private void hScrollBar_caretPosition_Scroll(object sender, ScrollEventArgs e)
+		private void hScrollBar_caretPosition_Scroll(object sender, ScrollEventArgs e)
         {
             this.label_info_caretPosition.Text = $"Caret Position: {(this.CaretPosition * 100f):F1}%";
         }
