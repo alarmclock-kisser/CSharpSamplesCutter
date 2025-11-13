@@ -55,68 +55,43 @@ namespace CSharpSamplesCutter.Forms
 
                 this.PlaybackCancellationTokens.AddOrUpdate(track.Id, new CancellationToken(), (key, oldValue) => new CancellationToken());
                 this.button_playback.Text = "■";
-                
+
                 // ✅ Loop-Grenzen als SAMPLES an PlayAsync übergeben!
                 long loopStartSample = track.LoopStartFrames * track.Channels;
                 long loopEndSample = track.LoopEndFrames * track.Channels;
-                
+
+                // IMPORTANT: Damit die Wiedergabe innerhalb der Loop-Region beginnt, setze die StartingOffset
+                if (this.loopState.LoopEnabled && loopEndSample > loopStartSample)
+                {
+                    track.StartingOffset = loopStartSample;
+                    // Setze auch die frame-basierte Position damit UI/Position sofort konsistent ist
+                    try { track.SetPosition(track.LoopStartFrames); } catch { }
+                }
+
                 await track.PlayAsync(this.PlaybackCancellationTokens.GetValueOrDefault(track.Id), onPlaybackStopped, this.Volume, loopStartSample: loopStartSample, loopEndSample: loopEndSample);
+            }
+            else if (track.Paused)
+            {
+                // ✅ RESUME: Loop-Grenzen MÜSSEN weitergegeben werden!
+                if (this.loopState.LoopEnabled)
+                {
+                    long loopStartSample = track.LoopStartFrames * track.Channels;
+                    long loopEndSample = track.LoopEndFrames * track.Channels;
+
+                    // Resume mit Loop-Info
+                    await track.PlayAsync(this.PlaybackCancellationTokens.GetValueOrDefault(track.Id), null, this.Volume, loopStartSample: loopStartSample, loopEndSample: loopEndSample);
+                }
+                else
+                {
+                    // Resume ohne Loop
+                    await track.PlayAsync(this.PlaybackCancellationTokens.GetValueOrDefault(track.Id), null, this.Volume);
+                }
             }
             else
             {
                 await track.StopAsync();
                 this.PlaybackCancellationTokens.TryRemove(track.Id, out _);
                 this.button_playback.Text = "▶";
-            }
-        }
-
-        /// <summary>
-        /// ✅ Berechnet Loop-Grenzen basierend auf Selection oder ganzer Track
-        /// WICHTIG: LoopStartFrames/LoopEndFrames sind in FRAMES, aber PlayAsync braucht SAMPLES!
-        /// </summary>
-        private void SetupLoopBounds(AudioObj track)
-        {
-            if (track == null || !this.loopState.LoopEnabled)
-            {
-                return;
-            }
-
-            int denominator = this.loopState.CurrentLoopFractionDenominator;
-            int ch = Math.Max(1, track.Channels);
-
-            // ✅ Wenn SELECTION vorhanden: Loop-Bereich auf Selection setzen
-            if (track.SelectionStart >= 0 && track.SelectionEnd >= 0 && track.SelectionEnd > track.SelectionStart)
-            {
-                long selStartSample = track.SelectionStart; // bereits in Samples!
-                long selEndSample = track.SelectionEnd;     // bereits in Samples!
-                long selLength = selEndSample - selStartSample;
-
-                // Loop-Fraction des Selections-Bereichs
-                long loopLength = selLength / denominator;
-                loopLength = Math.Max(ch, loopLength); // Mindestens 1 Frame = ch samples
-
-                track.LoopStartFrames = selStartSample / ch;
-                track.LoopEndFrames = track.LoopStartFrames + (loopLength / ch);
-
-                // ✅ WICHTIG: StartingOffset auf LoopStart setzen!
-                track.StartingOffset = track.LoopStartFrames * ch;
-
-                LogCollection.Log($"Loop set to selection: 1/{denominator} = {loopLength} samples (frames {track.LoopStartFrames}..{track.LoopEndFrames})");
-            }
-            else
-            {
-                // ✅ Wenn KEINE SELECTION: Loop-Bereich auf ganze Track setzen
-                long totalSamples = track.Length;  // in Samples (interleaved)!
-                long loopSamples = totalSamples / denominator;
-                loopSamples = Math.Max(ch, loopSamples); // Mindestens 1 Frame
-
-                track.LoopStartFrames = 0;
-                track.LoopEndFrames = loopSamples / ch;
-
-                // ✅ WICHTIG: StartingOffset auf LoopStart setzen!
-                track.StartingOffset = 0;
-
-                LogCollection.Log($"Loop set to whole track: 1/{denominator} = {loopSamples} samples (frames {track.LoopStartFrames}..{track.LoopEndFrames})");
             }
         }
 
@@ -130,6 +105,107 @@ namespace CSharpSamplesCutter.Forms
             }
 
             await track.PauseAsync();
+        }
+
+        private async void Form_Space_Pressed(object? sender, KeyEventArgs e)
+        {
+            if (e.KeyCode != Keys.Space || e.Handled)
+            {
+                return;
+            }
+
+            if (this.IsEditingContext())
+            {
+                return;
+            }
+
+            var track = this.SelectedTrack;
+            if (track == null)
+            {
+                return;
+            }
+
+            var now = DateTime.UtcNow;
+            if (this.SpaceKeyDebounceActive || (now - this.LastSpaceToggleUtc).TotalMilliseconds < 180)
+            {
+                return;
+            }
+
+            this.SpaceKeyDebounceActive = true;
+            this.LastSpaceToggleUtc = now;
+
+            try
+            {
+                if (track.Playing)
+                {
+                    await track.PauseAsync();
+                    this.button_pause.ForeColor = Color.Black;
+                }
+                else if (track.Paused)
+                {
+                    // ✅ RESUME: Loop-Grenzen MÜSSEN weitergegeben werden!
+                    if (this.loopState.LoopEnabled)
+                    {
+                        long loopStartSample = track.LoopStartFrames * track.Channels;
+                        long loopEndSample = track.LoopEndFrames * track.Channels;
+
+                        // ✅ Resume mit Loop-Info
+                        await track.PlayAsync(
+                            CancellationToken.None,
+                            null,
+                            this.Volume,
+                            loopStartSample: loopStartSample,
+                            loopEndSample: loopEndSample,
+                            desiredLatency: 120);
+                    }
+                    else
+                    {
+                        await track.PlayAsync(CancellationToken.None, null, this.Volume, desiredLatency: 120);
+                    }
+                    this.button_pause.ForeColor = Color.Black;
+                }
+                else
+                {
+                    // ✅ START: Aktualisiere Loop-Grenzen BEVOR Playback startet
+                    if (this.loopState.LoopEnabled)
+                    {
+                        this.UpdateLoopBounds();
+                    }
+
+                    var onPlaybackStopped = new Action(() =>
+                    {
+                        this.button_playback.Invoke(() => this.button_playback.Text = "▶");
+                        this.PlaybackCancellationTokens.TryRemove(track.Id, out _);
+                    });
+
+                    var cts = new CancellationTokenSource();
+                    this.PlaybackCancellationTokens[track.Id] = cts.Token;
+                    this.button_playback.Text = "■";
+
+                    // ✅ Loop-Parameter übergeben
+                    long loopStartSample = track.LoopStartFrames * track.Channels;
+                    long loopEndSample = track.LoopEndFrames * track.Channels;
+
+                    // Ensure playback starts at loop start
+                    if (this.loopState.LoopEnabled && loopEndSample > loopStartSample)
+                    {
+                        track.StartingOffset = loopStartSample;
+                        try { track.SetPosition(track.LoopStartFrames); } catch { }
+                    }
+
+                    await track.PlayAsync(cts.Token, onPlaybackStopped, this.Volume, loopStartSample: loopStartSample, loopEndSample: loopEndSample, desiredLatency: 120);
+                }
+            }
+            finally
+            {
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(120);
+                    this.SpaceKeyDebounceActive = false;
+                });
+            }
+
+            e.Handled = true;
         }
 
         private void vScrollBar_volume_Scroll(object sender, ScrollEventArgs e)
@@ -254,9 +330,6 @@ namespace CSharpSamplesCutter.Forms
             this.RestoreViewState();
         }
 
-        /// <summary>
-        /// ✅ Berechnet den Loop-Range basierend auf aktuellem Loop-Status und Selection
-        /// </summary>
         private (long loopStartFrame, long loopEndFrame) GetLoopRange()
         {
             if (!this.loopState.LoopEnabled)
@@ -271,45 +344,48 @@ namespace CSharpSamplesCutter.Forms
             }
 
             int channels = Math.Max(1, track.Channels);
-            long totalFrames = track.Length / channels;
+            long totalFrames = Math.Max(1, track.Length / channels);
 
-            // Bestimme Loop-Range: Selection oder ganzer Track
-            long loopStartFrames, loopEndFrames;
+            long loopStartFrames;
+            long loopEndFrames;
 
             if (track.SelectionStart >= 0 && track.SelectionEnd >= 0 && track.SelectionStart != track.SelectionEnd)
             {
-                // Mit Selection
                 long selStart = track.SelectionStart;
                 long selEnd = track.SelectionEnd;
                 if (selEnd < selStart)
                 {
                     (selStart, selEnd) = (selEnd, selStart);
                 }
-
                 loopStartFrames = selStart / channels;
-                loopEndFrames = selEnd / channels;
+                loopEndFrames = Math.Min(totalFrames, selEnd / channels);
             }
             else
             {
-                // Ganzer Track
                 loopStartFrames = 0;
                 loopEndFrames = totalFrames;
             }
 
-            // Berechne Loop-Endpunkt basierend auf aktuellem Bruch
-            int denominator = this.loopState.CurrentLoopFractionDenominator;
-            long loopDurationFrames = loopEndFrames - loopStartFrames;
-            long loopSegmentFrames = loopDurationFrames / denominator;
-
-            long calculatedLoopEndFrames = loopStartFrames + loopSegmentFrames;
-
-            return (loopStartFrames, calculatedLoopEndFrames);
+            long duration = Math.Max(1, loopEndFrames - loopStartFrames);
+            int denominator = Math.Max(1, this.loopState.CurrentLoopFractionDenominator);
+            long segment = duration / denominator;
+            if (segment <= 0)
+            {
+                segment = 1; // mindestens 1 Frame loopen
+            }
+            long calculatedEnd = loopStartFrames + segment;
+            if (calculatedEnd > loopEndFrames)
+            {
+                calculatedEnd = loopEndFrames; // nicht über ursprüngliche Auswahl hinaus
+            }
+            if (calculatedEnd <= loopStartFrames)
+            {
+                calculatedEnd = loopStartFrames + 1; // Sicherheitsfallback
+            }
+            return (loopStartFrames, Math.Min(calculatedEnd, totalFrames));
         }
 
-        /// <summary>
-        /// ✅ Aktualisiert Loop-Grenzen basierend auf aktuellem Loop-Status
-        /// </summary>
-        private void UpdateLoopBounds()
+        private void UpdateLoopBounds(bool adjustStartIfOutside = false)
         {
             var track = this.SelectedTrack;
             if (track == null || !this.loopState.LoopEnabled)
@@ -318,20 +394,22 @@ namespace CSharpSamplesCutter.Forms
             }
 
             var (loopStartFrame, loopEndFrame) = this.GetLoopRange();
-            
             track.LoopStartFrames = loopStartFrame;
             track.LoopEndFrames = loopEndFrame;
-            
-            // ✅ WICHTIG: StartingOffset auf LoopStart setzen
-            track.StartingOffset = loopStartFrame * track.Channels;
-            
-            LogCollection.Log($"Loop bounds updated: {loopStartFrame}..{loopEndFrame} frames");
+
+            if (adjustStartIfOutside)
+            {
+                long pos = track.Position;
+                if (pos < loopStartFrame || pos >= loopEndFrame)
+                {
+                    track.SetPosition(loopStartFrame);
+                    track.StartingOffset = loopStartFrame * track.Channels;
+                }
+            }
+
+            LogCollection.Log($"Loop bounds updated: {loopStartFrame}-{loopEndFrame} (frames)");
         }
 
-        /// <summary>
-        /// ✅ DYNAMISCHE Loop-Bruch-Änderung während Playback
-        /// Prüft: Ist aktuelle Position noch im neuen Bruch? → Weiterspielen. Nein? → Zurück zu Start.
-        /// </summary>
         private void UpdateLoopBoundsDynamic()
         {
             var track = this.SelectedTrack;
@@ -340,37 +418,30 @@ namespace CSharpSamplesCutter.Forms
                 return;
             }
 
-            // Aktuelle Position in Frames
             long currentFrames = track.Position;
-            
-            // Alle Brüche durchprobieren
-            var (oldLoopStart, oldLoopEnd) = this.GetLoopRange();
-            
-            // Cycle zum nächsten Bruch
             this.loopState.CycleLoopFraction();
             var (newLoopStart, newLoopEnd) = this.GetLoopRange();
-            
-            // Update Track Loop-Grenzen
+
+            // Apply bounds
             track.LoopStartFrames = newLoopStart;
             track.LoopEndFrames = newLoopEnd;
-            
-            this.button_loop.Text = this.loopState.GetLoopFractionString();
-            this.button_loop.ForeColor = System.Drawing.Color.Green;
 
-            // ✅ INTELLIGENTE Logik:
-            // Ist die aktuelle Position noch im neuen Loop-Bereich?
-            if (currentFrames >= newLoopStart && currentFrames < newLoopEnd)
+            long loopStartSample = newLoopStart * track.Channels;
+            long loopEndSample = newLoopEnd * track.Channels;
+            track.UpdateLoopBoundsDuringPlayback(loopStartSample, loopEndSample);
+
+            // Nur springen wenn außerhalb des neuen Bereichs
+            if (currentFrames < newLoopStart || currentFrames >= newLoopEnd)
             {
-                // ✅ JA: Weiterspielen mit neuer Grenze
-                LogCollection.Log($"Loop bounds updated (playing): {newLoopStart}..{newLoopEnd} frames (continuing at {currentFrames})");
-            }
-            else
-            {
-                // ✅ NEIN: Zurück zum Loop-Start
-                track.StartingOffset = newLoopStart * track.Channels;
                 track.SetPosition(newLoopStart);
-                LogCollection.Log($"Loop bounds updated (playing): {newLoopStart}..{newLoopEnd} frames (jumped to start)");
+                track.StartingOffset = newLoopStart * track.Channels;
             }
+
+            this.button_loop.Text = this.loopState.CurrentLoopFractionDenominator.ToString();
+            this.button_loop.Font = new Font(this.button_loop.Font.FontFamily, 7f, FontStyle.Regular);
+            this.button_loop.ForeColor = Color.Green;
+
+            LogCollection.Log($"Loop bounds dynamic: {newLoopStart}-{newLoopEnd} (frames), position {track.Position}");
         }
 
         private void button_loop_Click(object sender, EventArgs e)
@@ -379,8 +450,19 @@ namespace CSharpSamplesCutter.Forms
             {
                 // Ctrl+Click: Disable looping, reset to default
                 this.loopState.ResetLoop();
+
+                // UI: black, 9pt, bold ring-arrow
                 this.button_loop.Text = "↻";
-                this.button_loop.ForeColor = System.Drawing.Color.Black;
+                this.button_loop.Font = new Font(this.button_loop.Font.FontFamily, 9f, FontStyle.Bold);
+                this.button_loop.ForeColor = Color.Black;
+
+                // If playing: immediately switch to linear provider and realign caret baseline
+                var track = this.SelectedTrack;
+                if (track != null && track.PlayerPlaying)
+                {
+                    track.DisableLoopNow();
+                }
+
                 LogCollection.Log("Loop disabled");
             }
             else
@@ -388,34 +470,45 @@ namespace CSharpSamplesCutter.Forms
                 // Normal click
                 if (!this.loopState.LoopEnabled)
                 {
-                    // Aktiviere Loop mit erstem Bruch (1/1)
+                    // Enable loop with first fraction (1/1)
                     this.loopState.LoopEnabled = true;
                     this.loopState.LoopFractionIndex = 0;
-                    this.button_loop.Text = this.loopState.GetLoopFractionString();
-                    this.button_loop.ForeColor = System.Drawing.Color.Green;
+
+                    this.button_loop.Text = this.loopState.CurrentLoopFractionDenominator.ToString();
+                    this.button_loop.Font = new Font(this.button_loop.Font.FontFamily, 7f, FontStyle.Regular);
+                    this.button_loop.ForeColor = Color.Green;
                     LogCollection.Log($"Loop enabled: {this.loopState.GetLoopFractionString()}");
-                    
-                    // ✅ Setze Loop-Grenzen neu
-                    this.UpdateLoopBounds();
-                }
-                else
-                {
-                    // ✅ Cycle durch die Brüche - DYNAMISCH während Playback!
+
+                    // Setze Grenzen (nur verschieben wenn aktuelle Position draußen)
+                    this.UpdateLoopBounds(adjustStartIfOutside: true);
+
                     var track = this.SelectedTrack;
                     if (track != null && track.PlayerPlaying)
                     {
-                        // Loop läuft: Intelligente Bruch-Änderung
+                        long loopStartSample = track.LoopStartFrames * track.Channels;
+                        long loopEndSample = track.LoopEndFrames * track.Channels;
+                        track.EnableLoopNow(loopStartSample, loopEndSample);
+                    }
+                }
+                else
+                {
+                    // Cycle loop fraction
+                    var track = this.SelectedTrack;
+                    if (track != null && track.PlayerPlaying)
+                    {
                         this.UpdateLoopBoundsDynamic();
                     }
                     else
                     {
-                        // Kein Playback: Normal cyclen
                         this.loopState.CycleLoopFraction();
-                        this.button_loop.Text = this.loopState.GetLoopFractionString();
-                        this.button_loop.ForeColor = System.Drawing.Color.Green;
                         this.UpdateLoopBounds();
                     }
-                    
+
+                    // UI update: denominator only, green, 7pt
+                    this.button_loop.Text = this.loopState.CurrentLoopFractionDenominator.ToString();
+                    this.button_loop.Font = new Font(this.button_loop.Font.FontFamily, 7f, FontStyle.Regular);
+                    this.button_loop.ForeColor = Color.Green;
+
                     LogCollection.Log($"Loop changed to: {this.loopState.GetLoopFractionString()}");
                 }
             }
@@ -426,7 +519,7 @@ namespace CSharpSamplesCutter.Forms
             if (this.checkBox_solo.Checked)
             {
                 Guid selectedId = this.SelectedTrack?.Id ?? Guid.Empty;
-                var playingIds = this.AudioC.Playing.Where(i => i != selectedId);
+                var playingIds = this.AudioC.Playing.Where(i => i != selectedId).ToList();
                 await this.AudioC.StopManyAsync(playingIds);
             }
         }

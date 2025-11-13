@@ -796,8 +796,6 @@ namespace CSharpSamplesCutter.Core
         // Playback Methods (PlaybackService)
         public async Task PlayAsync(CancellationToken cancellationToken, Action? onPlaybackStopped = null, float? initialVolume = null, int desiredLatency = 50, long loopStartSample = 0, long loopEndSample = 0)
         {
-            this.Playing = true;
-            this.Paused = false;
             initialVolume ??= this.Volume / 100f;
 
             if (this.Data == null || this.Data.Length == 0 || this.SampleRate <= 0 || this.Channels <= 0)
@@ -808,6 +806,12 @@ namespace CSharpSamplesCutter.Core
 
             try
             {
+                // Stop any existing playback immediately to avoid overlapping output
+                try { this.playback.Stop(); } catch { }
+
+                this.Playing = true;
+                this.Paused = false;
+
                 // Start-Offset in Samples (interleaved) aus Byte-Offset berechnen
                 int bytesPerFrame = Math.Max(1, this.Channels) * sizeof(float);
                 long startSampleIndex = this.StartingOffset > 0 ? this.StartingOffset : 0;
@@ -824,7 +828,7 @@ namespace CSharpSamplesCutter.Core
                     {
                         this.Playing = false;
                         this.Paused = false;
-                        this.playback.PlaybackStopped -= handler!;
+                        try { this.playback.PlaybackStopped -= handler!; } catch { }
                     }
                 };
                 this.playback.PlaybackStopped += handler;
@@ -933,6 +937,54 @@ namespace CSharpSamplesCutter.Core
             volume = Math.Clamp(volume, 0.0f, 1.0f);
             this.Volume = volume;
             this.playback.SetVolume(volume);
+        }
+
+        // ✅ LIVE Loop-Grenzen aktualisieren während Playback läuft!
+        public void UpdateLoopBoundsDuringPlayback(long loopStartSample, long loopEndSample)
+        {
+            this.playback.UpdateLoopBounds(loopStartSample, loopEndSample);
+        }
+
+        // ✅ Switch playback pipeline to LOOPING immediately (playing or paused)
+        public void EnableLoopNow(long loopStartSample, long loopEndSample)
+        {
+            int ch = Math.Max(1, this.Channels);
+            int bytesPerFrame = ch * sizeof(float);
+
+            // Absolute aktuelle Bytes (ohne Loop-Mapping)
+            long absoluteBytes = this.CurrentPlaybackPositionBytes;
+            long absoluteFrames = bytesPerFrame > 0 ? absoluteBytes / bytesPerFrame : 0;
+            long currentSampleIndex = absoluteFrames * ch;
+
+            // Switch Provider
+            this.playback.SwitchToLoop(currentSampleIndex, loopStartSample, loopEndSample);
+
+            // Baselines neu setzen, damit Caret korrekt weiterläuft
+            this.SkippedPositionBytes = absoluteFrames * bytesPerFrame;
+            try { this.positionOriginBytes = this.playback.GetPositionBytes(); } catch { this.positionOriginBytes = 0; }
+        }
+
+        // ✅ Switch playback pipeline to LINEAR immediately (playing or paused)
+        public void DisableLoopNow()
+        {
+            int ch = Math.Max(1, this.Channels);
+            int bytesPerFrame = ch * sizeof(float);
+
+            // Absolute aktuelle Bytes (ohne weitere Anpassungen)
+            long absoluteBytes = this.CurrentPlaybackPositionBytes;
+            long absoluteFrames = bytesPerFrame > 0 ? absoluteBytes / bytesPerFrame : 0;
+            long currentSampleIndex = absoluteFrames * ch;
+
+            // Switch Provider
+            this.playback.SwitchToLinear(currentSampleIndex);
+
+            // Reset Loop-Frames und Baselines
+            long totalFrames = Math.Max(0, (this.Data?.LongLength ?? 0L) / Math.Max(1, this.Channels));
+            this.LoopStartFrames = 0;
+            this.LoopEndFrames = totalFrames;
+
+            this.SkippedPositionBytes = absoluteFrames * bytesPerFrame;
+            try { this.positionOriginBytes = this.playback.GetPositionBytes(); } catch { this.positionOriginBytes = 0; }
         }
 
         // SetPosition: Frames -> Bytes; BasiseOffset setzen, ggf. nur merken (Seek beim nächsten Play)
@@ -1853,6 +1905,23 @@ namespace CSharpSamplesCutter.Core
             }
 
             return (selStart, selEnd, true);
+        }
+
+        // Fast seek while playing without reinitializing output
+        public void FastSeekWhilePlaying(long framePosition)
+        {
+            int ch = Math.Max(1, this.Channels);
+            int bytesPerFrame = ch * sizeof(float);
+            long totalFrames = Math.Max(0, (this.Data?.LongLength ?? 0L) / ch);
+            long targetFrame = Math.Clamp(framePosition, 0, totalFrames);
+            long targetSampleIndex = targetFrame * ch;
+
+            // Switch pipeline to the new position
+            this.playback.SeekSamples(targetSampleIndex);
+
+            // Realign baselines so Position maps honestly from new point
+            this.SkippedPositionBytes = targetFrame * bytesPerFrame;
+            try { this.positionOriginBytes = this.playback.GetPositionBytes(); } catch { this.positionOriginBytes = 0; }
         }
 
     }

@@ -1,6 +1,6 @@
 using CSharpSamplesCutter.Core;
 
-namespace CSharpSamplesCutter.Forms.MainWindow.ViewModels
+namespace CSharpSamplesCutter.Forms.Forms.MainWindow.ViewModels
 {
     /// <summary>
     ///  Enthält temporäre Zustände zur Selektion in der Hauptansicht.

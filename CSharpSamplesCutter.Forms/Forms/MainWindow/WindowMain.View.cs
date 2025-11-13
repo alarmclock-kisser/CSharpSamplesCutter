@@ -158,6 +158,22 @@ namespace CSharpSamplesCutter.Forms
                         this.SelectedTrack.SelectionStart = -1;
                         this.SelectedTrack.SelectionEnd = -1;
                     }
+                    else
+                    {
+                        // ✅ NEW: Bei Selection-Update Loop-Grenzen aktualisieren wenn Loop aktiv
+                        if (this.loopState.LoopEnabled)
+                        {
+                            this.UpdateLoopBounds();
+
+                            // Wenn Track läuft: LIVE Update
+                            if (this.SelectedTrack.PlayerPlaying)
+                            {
+                                long loopStartSample = this.SelectedTrack.LoopStartFrames * this.SelectedTrack.Channels;
+                                long loopEndSample = this.SelectedTrack.LoopEndFrames * this.SelectedTrack.Channels;
+                                this.SelectedTrack.UpdateLoopBoundsDuringPlayback(loopStartSample, loopEndSample);
+                            }
+                        }
+                    }
                 }
                 else if (this.SelectionMode.Equals("Erase", StringComparison.OrdinalIgnoreCase))
                 {
@@ -171,6 +187,20 @@ namespace CSharpSamplesCutter.Forms
                     this.ClampViewOffset();
                     this.RecalculateScrollBar();
                     this.SelectedTrack.ScrollOffset = this.ViewOffsetFrames;
+
+                    // ✅ WICHTIG: Nach Erase Loop-Grenzen neu berechnen!
+                    if (this.loopState.LoopEnabled)
+                    {
+                        this.UpdateLoopBounds();
+
+                        // Wenn Track läuft: LIVE Update
+                        if (this.SelectedTrack.PlayerPlaying)
+                        {
+                            long loopStartSample = this.SelectedTrack.LoopStartFrames * this.SelectedTrack.Channels;
+                            long loopEndSample = this.SelectedTrack.LoopEndFrames * this.SelectedTrack.Channels;
+                            this.SelectedTrack.UpdateLoopBoundsDuringPlayback(loopStartSample, loopEndSample);
+                        }
+                    }
                 }
 
                 this.IsSelecting = false;
@@ -203,7 +233,37 @@ namespace CSharpSamplesCutter.Forms
                     return;
                 }
 
-                bool follow = this.checkBox_sync.Checked && track.PlayerPlaying;
+                long totalFrames = Math.Max(1, track.Length / Math.Max(1, track.Channels));
+                // --- Caret immer auf echte Abspielposition setzen ---
+                float liveCaretPos = 0f;
+                if (track.PlayerPlaying)
+                {
+                    liveCaretPos = (float)track.Position / (float)totalFrames;
+                    this.SetCaretPosition(liveCaretPos);
+                }
+
+                bool follow = (this.checkBox_sync.Checked || this.IsPlaybackForceFollow(track.Id)) && track.PlayerPlaying;
+
+                // Force-follow: harte Zentrierung um den Caret bei jedem Tick
+                if (!this.IsUserScroll && this.IsPlaybackForceFollow(track.Id) && track.PlayerPlaying)
+                {
+                    long caret = track.Position;
+                    long viewFramesNow = (long)this.pictureBox_wave.Width * Math.Max(1, spp);
+                    long total = totalFrames;
+                    long maxOffset = Math.Max(0, total - viewFramesNow);
+
+                    // Verwende aktuellen Caret-Slider als relative Bildschirmposition (Fallback 0.25f)
+                    float caretPosClamped = this.CaretPosition > 0f ? Math.Clamp(this.CaretPosition, 0f, 1f) : 0.25f;
+                    long caretInView = (long)Math.Round(viewFramesNow * caretPosClamped);
+                    long wanted = Math.Clamp(caret - caretInView, 0, maxOffset);
+                    if (wanted != this.ViewOffsetFrames)
+                    {
+                        this.ViewOffsetFrames = wanted;
+                        this.SuppressScrollEvent = true;
+                        try { this.RecalculateScrollBar(); } finally { this.SuppressScrollEvent = false; }
+                        track.ScrollOffset = this.ViewOffsetFrames;
+                    }
+                }
 
                 if (follow)
                 {
@@ -211,36 +271,29 @@ namespace CSharpSamplesCutter.Forms
                     long leftMargin = 8L * Math.Max(1, spp);
                     long rightMargin = 16L * Math.Max(1, spp);
 
-                    long caret = track.Position; // ✅ Bereits loop-aware dank Position-Property!
+                    long caret = track.Position;
                     long start = this.ViewOffsetFrames;
-
-                    // ✅ LOOP-AWARE: Wenn Loop aktiv, den Loop-Bereich als "total" betrachten
-                    int ch = Math.Max(1, track.Channels);
-                    long totalFrames = Math.Max(1, track.Length / ch);
-                    long viewEndLimit = totalFrames; // Standard: ganze Track-Länge
-                    
-                    if (track.LoopEndFrames > track.LoopStartFrames)
-                    {
-                        // Loop aktiv: Limit auf Loop-Bereich
-                        viewEndLimit = track.LoopEndFrames;
-                    }
+                    long viewStartLimit = 0;
+                    long viewEndLimit = totalFrames;
 
                     long maxOffset = Math.Max(0, viewEndLimit - viewFrames);
 
                     if (caret < start + leftMargin)
                     {
-                        start = Math.Max(0, caret - leftMargin);
+                        start = Math.Max(viewStartLimit, caret - leftMargin);
                     }
                     else if (caret > start + viewFrames - rightMargin)
                     {
-                        start = Math.Max(0, caret - (viewFrames - rightMargin));
+                        start = Math.Max(viewStartLimit, caret - (viewFrames - rightMargin));
                     }
 
                     float caretPosClamped = Math.Clamp(this.CaretPosition, 0f, 1f);
                     long caretInViewFrames = (long) Math.Round(viewFrames * caretPosClamped);
-                    long computedOffset = Math.Clamp(caret - caretInViewFrames, 0, maxOffset);
+                    long computedOffset = Math.Clamp(caret - caretInViewFrames, viewStartLimit, maxOffset);
 
                     long wanted = Math.Max(start, computedOffset);
+                    wanted = Math.Clamp(wanted, viewStartLimit, maxOffset);
+
                     if (wanted != this.ViewOffsetFrames)
                     {
                         this.ViewOffsetFrames = wanted;
@@ -283,7 +336,7 @@ namespace CSharpSamplesCutter.Forms
                     this.SelectionColor,
                     this.SmoothenWaveform,
                     this.TimingMarkerInterval,
-                    this.CaretPosition,
+                    (track.PlayerPlaying ? Math.Clamp(liveCaretPos, 0f, 1f) : this.CaretPosition),
                     2);
 
                 this.textBox_timestamp.Text = ((track.PlayerPlaying || track.Paused) ? track.CurrentTime : track.Duration).ToString("hh\\:mm\\:ss\\.fff");
@@ -433,6 +486,8 @@ namespace CSharpSamplesCutter.Forms
             try
             {
                 int spp = this.SamplesPerPixel;
+                long totalFrames = Math.Max(1, track.Length / Math.Max(1, track.Channels));
+                float liveCaretPosLocal = track.PlayerPlaying ? Math.Clamp((float)track.Position / (float)totalFrames, 0f, 1f) : this.CaretPosition;
                 Bitmap bmp = await track.DrawWaveformAsync(
                     this.pictureBox_wave.Width,
                     this.pictureBox_wave.Height,
@@ -446,7 +501,7 @@ namespace CSharpSamplesCutter.Forms
                     this.SelectionColor,
                     this.SmoothenWaveform,
                     this.TimingMarkerInterval,
-                    this.CaretPosition,
+                    liveCaretPosLocal,
                     2);
 
                 if (!this.pictureBox_wave.IsDisposed)

@@ -45,6 +45,7 @@ namespace CSharpSamplesCutter.Core
         private long position; // in Samples (floats)
         private long loopStartSample;
         private long loopEndSample;
+        private readonly object loopGate = new(); // ✅ Für thread-safe Updates
         public WaveFormat WaveFormat { get; }
 
         public LoopingSampleProvider(float[] data, int sampleRate, int channels, long startSampleIndex = 0, long loopStart = 0, long loopEnd = 0)
@@ -62,15 +63,30 @@ namespace CSharpSamplesCutter.Core
 
             this.WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
             this.position = Math.Clamp(startSampleIndex, 0, data.LongLength);
-            
+
             // ✅ Loop-Grenzen setzen (in Samples/Floats)
             this.loopStartSample = Math.Clamp(loopStart, 0, data.LongLength);
             this.loopEndSample = Math.Clamp(loopEnd, 0, data.LongLength);
-            
+
             // Wenn loopEnd == 0 oder ungültig: Loop deaktivieren (spielen bis Ende)
             if (this.loopEndSample <= this.loopStartSample)
             {
                 this.loopEndSample = data.LongLength;
+            }
+        }
+
+        // ✅ LIVE Loop-Grenzen aktualisieren während Playback läuft!
+        public void UpdateLoopBounds(long newLoopStart, long newLoopEnd)
+        {
+            lock (this.loopGate)
+            {
+                this.loopStartSample = Math.Clamp(newLoopStart, 0, this.data.LongLength);
+                this.loopEndSample = Math.Clamp(newLoopEnd, 0, this.data.LongLength);
+
+                if (this.loopEndSample <= this.loopStartSample)
+                {
+                    this.loopEndSample = this.data.LongLength;
+                }
             }
         }
 
@@ -80,14 +96,36 @@ namespace CSharpSamplesCutter.Core
 
             while (samplesRead < count)
             {
+                long loopStart, loopEnd;
+                lock (this.loopGate)
+                {
+                    loopStart = this.loopStartSample;
+                    loopEnd = this.loopEndSample;
+                }
+
+                // ✅ FIX: Nur loopen wenn Loop-Grenzen gültig sind
+                if (loopEnd <= loopStart)
+                {
+                    // ❌ Loop NICHT aktiv → spielen bis zum Array-Ende
+                    loopStart = 0;
+                    loopEnd = this.data.LongLength;
+                }
+
                 // Wie viel können wir bis zum Loop-Ende lesen?
-                long samplesUntilLoopEnd = this.loopEndSample - this.position;
-                
+                long samplesUntilLoopEnd = loopEnd - this.position;
+
                 if (samplesUntilLoopEnd <= 0)
                 {
                     // ✅ Loop-Ende erreicht: zurück zu Loop-Start
-                    this.position = this.loopStartSample;
-                    samplesUntilLoopEnd = this.loopEndSample - this.position;
+                    this.position = loopStart;
+                    samplesUntilLoopEnd = loopEnd - this.position;
+
+                    // Safeguard: Wenn immer noch negativ, dann Playback beenden
+                    if (samplesUntilLoopEnd <= 0)
+                    {
+                        Array.Clear(buffer, offset + samplesRead, count - samplesRead);
+                        return samplesRead;
+                    }
                 }
 
                 int samplesToRead = (int) Math.Min(samplesUntilLoopEnd, count - samplesRead);
@@ -147,20 +185,25 @@ namespace CSharpSamplesCutter.Core
 
     public sealed class AudioPlaybackService : IDisposable
     {
-        private readonly WaveOutEvent player; // von außen injiziert oder intern erzeugt
+        private readonly WaveOutEvent player;
         private readonly bool ownsPlayer;
-        private AudioFileReader? reader; // float32 Quelle (Datei) optional
-        private SwitchingSampleProvider? switching; // konstanter Output (Geräteformat)
-        private SampleToWaveProvider? waveProvider; // für WaveOutEvent.Init
-        private ISampleProvider? pipeline; // aktuelle (resampled) Pipeline
+        private AudioFileReader? reader;
+        private SwitchingSampleProvider? switching;
+        private SampleToWaveProvider? waveProvider;
+        private ISampleProvider? pipeline;
         private readonly object graphGate = new();
-        private float[]? rawData; // store original data for seeking while paused
+        private float[]? rawData;
         private int rawSampleRate;
         private int rawChannels;
+        private LoopingSampleProvider? loopingProvider; // ✅ Speichere LoopingProvider für Updates
+        private long loopStartCurrent = 0; // in samples (floats)
+        private long loopEndCurrent = 0;   // in samples (floats)
 
         public float PlaybackRate { get; private set; } = 1.0f;
         public int DeviceSampleRate { get; private set; } = 44100;
         public int Channels { get; private set; } = 2;
+
+        public bool IsLooping => this.loopingProvider != null;
 
         public event EventHandler<StoppedEventArgs>? PlaybackStopped;
 
@@ -222,10 +265,16 @@ namespace CSharpSamplesCutter.Core
             ISampleProvider source;
             if (loopEndSample > loopStartSample && loopEndSample <= data.LongLength)
             {
-                source = new LoopingSampleProvider(data, sampleRate, channels, startSampleIndex, loopStartSample, loopEndSample);
+                this.loopStartCurrent = loopStartSample;
+                this.loopEndCurrent = loopEndSample;
+                this.loopingProvider = new LoopingSampleProvider(data, sampleRate, channels, startSampleIndex, loopStartSample, loopEndSample);
+                source = this.loopingProvider;
             }
             else
             {
+                this.loopStartCurrent = 0;
+                this.loopEndCurrent = 0;
+                this.loopingProvider = null;
                 source = new ArraySampleProvider(data, sampleRate, channels, startSampleIndex);
             }
 
@@ -241,6 +290,48 @@ namespace CSharpSamplesCutter.Core
             this.player.Init(this.waveProvider);
 
             await Task.Run(() => this.player.Play());
+        }
+
+        // 🔁 Provider live zu Looping wechseln (ohne Stop)
+        public void SwitchToLoop(long currentSampleIndex, long loopStartSample, long loopEndSample)
+        {
+            if (this.switching == null || this.rawData == null)
+            {
+                return;
+            }
+
+            this.loopStartCurrent = loopStartSample;
+            this.loopEndCurrent = loopEndSample;
+
+            var source = new LoopingSampleProvider(this.rawData, this.rawSampleRate, this.rawChannels, currentSampleIndex, loopStartSample, loopEndSample);
+            var newPipeline = BuildPipeline(source, this.PlaybackRate, this.switching.WaveFormat);
+            lock (this.graphGate)
+            {
+                this.loopingProvider = source;
+                this.pipeline = newPipeline;
+                this.switching.SetCurrent(this.pipeline);
+            }
+        }
+
+        // 🔁 Provider live zurück auf linear (kein Loop)
+        public void SwitchToLinear(long currentSampleIndex)
+        {
+            if (this.switching == null || this.rawData == null)
+            {
+                return;
+            }
+
+            this.loopStartCurrent = 0;
+            this.loopEndCurrent = 0;
+
+            var source = new ArraySampleProvider(this.rawData, this.rawSampleRate, this.rawChannels, currentSampleIndex);
+            var newPipeline = BuildPipeline(source, this.PlaybackRate, this.switching.WaveFormat);
+            lock (this.graphGate)
+            {
+                this.loopingProvider = null;
+                this.pipeline = newPipeline;
+                this.switching.SetCurrent(this.pipeline);
+            }
         }
 
         // Nahtlose Anpassung der Geschwindigkeit (Pitch & Tempo ändern sich gemeinsam, "Varispeed")
@@ -264,11 +355,6 @@ namespace CSharpSamplesCutter.Core
                 return;
             }
 
-            // currentSource ist bereits das Ergebnis vorheriger Resampler.
-            // Baue die Pipeline neu basierend auf der ursprünglichen Quelle, wenn möglich.
-            // Sicherer: aus reader oder aus switching.WaveFormat nicht möglich, daher
-            // wir nutzen die gleiche Logik wie Initialize, aber mit dem Eingang der letzten Quelle,
-            // falls das die ursprüngliche Quelle ist. Besser: reader ?? pipeline als Quelle verwenden.
             ISampleProvider baseSource = this.reader ?? currentSource;
             var newPipeline = BuildPipeline(baseSource, this.PlaybackRate, this.switching.WaveFormat);
             lock (this.graphGate)
@@ -287,12 +373,20 @@ namespace CSharpSamplesCutter.Core
             {
                 return;
             }
-            // Clamp startSampleIndex
             startSampleIndex = Math.Clamp(startSampleIndex, 0, this.rawData.LongLength);
-            var source = new ArraySampleProvider(this.rawData, this.rawSampleRate, this.rawChannels, startSampleIndex);
+            ISampleProvider source;
+            if (this.loopingProvider != null)
+            {
+                source = new LoopingSampleProvider(this.rawData, this.rawSampleRate, this.rawChannels, startSampleIndex, this.loopStartCurrent, this.loopEndCurrent);
+            }
+            else
+            {
+                source = new ArraySampleProvider(this.rawData, this.rawSampleRate, this.rawChannels, startSampleIndex);
+            }
             var newPipeline = BuildPipeline(source, this.PlaybackRate, this.switching.WaveFormat);
             lock (this.graphGate)
             {
+                if (source is LoopingSampleProvider lsp) this.loopingProvider = lsp; else this.loopingProvider = null;
                 this.pipeline = newPipeline;
                 this.switching.SetCurrent(this.pipeline);
             }
@@ -301,17 +395,12 @@ namespace CSharpSamplesCutter.Core
         // Graph aufbauen: Quelle -> (Resample auf R*f) -> (Resample auf DeviceRate) -> konstant D
         private static ISampleProvider BuildPipeline(ISampleProvider source, double rate, WaveFormat deviceFormat)
         {
-            //1) Quelle ggf. auf "virtuelle" Abtastrate R * rate bringen (erzeugt Varispeed-Effekt)
             int sourceRate = source.WaveFormat.SampleRate;
             int channels = source.WaveFormat.Channels;
 
-            // WdlResamplingSampleProvider erzeugt einen Provider mit neuem WaveFormat (SampleRate)
             var spedUp = new WdlResamplingSampleProvider(source, Math.Max(8000, (int) Math.Round(sourceRate * rate)));
-
-            //2) Auf die konstante Device-Rate zurück resamplen
             var toDevice = new WdlResamplingSampleProvider(spedUp, deviceFormat.SampleRate);
 
-            // Sicherheitscheck: Kanäle konsistent halten
             if (toDevice.WaveFormat.Channels != deviceFormat.Channels)
             {
                 if (deviceFormat.Channels == 1 && channels > 1)
@@ -320,7 +409,6 @@ namespace CSharpSamplesCutter.Core
                         new StereoToMonoSampleProvider(spedUp) { LeftVolume = 0.5f, RightVolume = 0.5f },
                         deviceFormat.SampleRate);
                 }
-                // sonst: beibehalten, typ. wandelt das Ausgabegerät im Shared-Mode
             }
 
             return toDevice;
@@ -357,9 +445,35 @@ namespace CSharpSamplesCutter.Core
             this.player.Volume = Math.Clamp(volume, 0f, 1f);
         }
 
+        // ✅ LIVE Loop-Grenzen aktualisieren während Playback läuft!
+        public void UpdateLoopBounds(long newLoopStartSample, long newLoopEndSample)
+        {
+            if (this.loopingProvider != null)
+            {
+                this.loopingProvider.UpdateLoopBounds(newLoopStartSample, newLoopEndSample);
+            }
+        }
+
         private void ResetGraph()
         {
-            this.player.Stop();
+            try
+            {
+                // Stop playback and wait briefly for device to settle — avoids "Can't re-initialize during playback" from NAudio
+                try { this.player.Stop(); } catch { }
+
+                // Wait up to 250ms for the player to reach Stopped state
+                try
+                {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    while (this.player.PlaybackState != PlaybackState.Stopped && sw.ElapsedMilliseconds < 250)
+                    {
+                        Thread.Sleep(5);
+                    }
+                }
+                catch { }
+            }
+            catch { }
+
             this.reader?.Dispose();
             this.reader = null;
             this.switching = null;
@@ -368,6 +482,7 @@ namespace CSharpSamplesCutter.Core
             this.rawData = null;
             this.rawSampleRate = 0;
             this.rawChannels = 0;
+            this.loopingProvider = null;
         }
 
         public void Dispose()

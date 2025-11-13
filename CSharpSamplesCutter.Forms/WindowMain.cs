@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using CSharpSamplesCutter.Core;
+using CSharpSamplesCutter.Forms.Forms.MainWindow.ViewModels;
 using CSharpSamplesCutter.Forms.MainWindow.ViewModels;
 using Dialogs = CSharpSamplesCutter.Forms.Dialogs;
 using Timer = System.Windows.Forms.Timer;
@@ -291,6 +292,33 @@ namespace CSharpSamplesCutter.Forms
 
         private int SkipTracks => Math.Max(0, (int) this.numericUpDown_skipTracks.Value);
 
+        private readonly object playbackForceFollowGate = new object();
+        private readonly System.Collections.Generic.HashSet<Guid> playbackForceFollow = new();
+
+        private void AddPlaybackForceFollow(Guid id)
+        {
+            lock (this.playbackForceFollowGate)
+            {
+                this.playbackForceFollow.Add(id);
+            }
+        }
+
+        private void RemovePlaybackForceFollow(Guid id)
+        {
+            lock (this.playbackForceFollowGate)
+            {
+                this.playbackForceFollow.Remove(id);
+            }
+        }
+
+        private bool IsPlaybackForceFollow(Guid id)
+        {
+            lock (this.playbackForceFollowGate)
+            {
+                return this.playbackForceFollow.Contains(id);
+            }
+        }
+
         // Fügen Sie diese Methode in die Klasse WindowMain ein (z.B. im Bereich der privaten Methoden):
 
         private int CalculateFrameIntervalMs()
@@ -515,6 +543,16 @@ namespace CSharpSamplesCutter.Forms
 
             this.textBox_scannedBpm.Text = bpm.ToString("F2");
             this.UpdateSelectedCollectionListBox();
+        }
+
+        // Setzt die Caret-Position (0.0 bis 1.0) über den Scrollbar
+        private void SetCaretPosition(float value)
+        {
+            if (this.hScrollBar_caretPosition.Maximum > 0)
+            {
+                int newValue = (int)Math.Round(Math.Clamp(value, 0f, 1f) * this.hScrollBar_caretPosition.Maximum);
+                this.hScrollBar_caretPosition.Value = Math.Clamp(newValue, this.hScrollBar_caretPosition.Minimum, this.hScrollBar_caretPosition.Maximum);
+            }
         }
     }
 }

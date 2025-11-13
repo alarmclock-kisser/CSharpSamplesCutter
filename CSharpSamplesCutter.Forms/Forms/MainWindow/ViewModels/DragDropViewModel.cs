@@ -1,6 +1,6 @@
 using System.Windows.Forms;
 
-namespace CSharpSamplesCutter.Forms.MainWindow.ViewModels
+namespace CSharpSamplesCutter.Forms.Forms.MainWindow.ViewModels
 {
     /// <summary>
     ///  Verwaltet Status für Drag&Drop-Operationen zwischen den Listen.

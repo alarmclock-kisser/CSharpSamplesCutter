@@ -1,6 +1,6 @@
 using System.Drawing;
 
-namespace CSharpSamplesCutter.Forms.MainWindow.ViewModels
+namespace CSharpSamplesCutter.Forms.Forms.MainWindow.ViewModels
 {
     /// <summary>
     ///  Hält Einstellungen zur Hue- und Strobe-Steuerung der Wellenform.

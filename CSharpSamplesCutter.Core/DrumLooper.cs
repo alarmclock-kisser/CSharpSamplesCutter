@@ -279,55 +279,55 @@ namespace CSharpSamplesCutter.Core
             };
         }
 
-		private static AudioObj FitToGridDurations(AudioObj src, long framesPerSixteenth, int[] allowedSixteenthMultipliers)
-		{
-			int ch = Math.Max(1, src.Channels);
-			long frames = src.Data.LongLength / ch;
-			long[] allowedFrames = allowedSixteenthMultipliers.Select(m => Math.Max(1, framesPerSixteenth * m)).ToArray();
-			long best = allowedFrames.Where(f => f <= frames).DefaultIfEmpty(allowedFrames[0]).Max();
-			// bool pad = false; // Entfernt, da nicht verwendet
-			if (best <= 0)
-			{
-				best = allowedFrames[0];
-				// pad = true;
-			}
-			else if (best < frames && !allowedFrames.Contains(frames))
-			{
-				// pad = false;
-			}
-			else if (frames < allowedFrames[0])
-			{
-				best = allowedFrames[0];
-				// pad = true;
-			}
+        private static AudioObj FitToGridDurations(AudioObj src, long framesPerSixteenth, int[] allowedSixteenthMultipliers)
+        {
+            int ch = Math.Max(1, src.Channels);
+            long frames = src.Data.LongLength / ch;
+            long[] allowedFrames = allowedSixteenthMultipliers.Select(m => Math.Max(1, framesPerSixteenth * m)).ToArray();
+            long best = allowedFrames.Where(f => f <= frames).DefaultIfEmpty(allowedFrames[0]).Max();
+            // bool pad = false; // Entfernt, da nicht verwendet
+            if (best <= 0)
+            {
+                best = allowedFrames[0];
+                // pad = true;
+            }
+            else if (best < frames && !allowedFrames.Contains(frames))
+            {
+                // pad = false;
+            }
+            else if (frames < allowedFrames[0])
+            {
+                best = allowedFrames[0];
+                // pad = true;
+            }
 
-			long outFrames = best;
-			int outLen = checked((int) (outFrames * ch));
-			float[] dst = new float[outLen];
-			int copyLen = (int) Math.Min(dst.Length, src.Data.Length);
-			Array.Copy(src.Data, 0, dst, 0, copyLen);
+            long outFrames = best;
+            int outLen = checked((int) (outFrames * ch));
+            float[] dst = new float[outLen];
+            int copyLen = (int) Math.Min(dst.Length, src.Data.Length);
+            Array.Copy(src.Data, 0, dst, 0, copyLen);
 
-			return new AudioObj
-			{
-				Id = src.Id,
-				Name = src.Name,
-				FilePath = src.FilePath,
-				Data = dst,
-				SampleRate = src.SampleRate,
-				Channels = src.Channels,
-				BitDepth = src.BitDepth,
-				Bpm = src.Bpm,
-				ScannedBpm = src.ScannedBpm,
-				Timing = src.Timing,
-				ScannedTiming = src.ScannedTiming,
-				Volume = src.Volume,
-				Length = dst.LongLength,
-				Duration = TimeSpan.FromSeconds((double) outFrames / Math.Max(1, src.SampleRate)),
-				SampleTag = src.SampleTag
-			};
-		}
+            return new AudioObj
+            {
+                Id = src.Id,
+                Name = src.Name,
+                FilePath = src.FilePath,
+                Data = dst,
+                SampleRate = src.SampleRate,
+                Channels = src.Channels,
+                BitDepth = src.BitDepth,
+                Bpm = src.Bpm,
+                ScannedBpm = src.ScannedBpm,
+                Timing = src.Timing,
+                ScannedTiming = src.ScannedTiming,
+                Volume = src.Volume,
+                Length = dst.LongLength,
+                Duration = TimeSpan.FromSeconds((double) outFrames / Math.Max(1, src.SampleRate)),
+                SampleTag = src.SampleTag
+            };
+        }
 
-		private static float[] MatchChannels(float[] data, int srcCh, int dstCh)
+        private static float[] MatchChannels(float[] data, int srcCh, int dstCh)
         {
             if (srcCh == dstCh)
             {

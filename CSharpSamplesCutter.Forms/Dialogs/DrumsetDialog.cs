@@ -729,10 +729,10 @@ namespace CSharpSamplesCutter.Forms.Dialogs
                 // Refresh beide ListBoxen
                 this.listBox_drumSet.Refresh();
                 this.listBox_samples.Refresh();
-                
+
                 // Re-render waveform wenn das aktuell sichtbare Sample geändert wurde
                 await this.RenderSelectedDrumAsync();
-                
+
                 LogCollection.Log($"Undo applied on track: {track.Name}");
                 e.Handled = true;
             }
@@ -759,10 +759,10 @@ namespace CSharpSamplesCutter.Forms.Dialogs
                 // Refresh beide ListBoxen
                 this.listBox_drumSet.Refresh();
                 this.listBox_samples.Refresh();
-                
+
                 // Re-render waveform wenn das aktuell sichtbare Sample geändert wurde
                 await this.RenderSelectedDrumAsync();
-                
+
                 LogCollection.Log($"Redo applied on track: {track.Name}");
                 e.Handled = true;
             }

@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Drawing;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -9,9 +10,6 @@ namespace CSharpSamplesCutter.Forms
 {
     public partial class WindowMain
     {
-        /// <summary>
-        /// Master keyboard event handler that prevents events when user is editing.
-        /// </summary>
         private void Form_KeyDown(object? sender, KeyEventArgs e)
         {
             // Skip handling if user is editing in a control (except for allowed keys)
@@ -51,9 +49,6 @@ namespace CSharpSamplesCutter.Forms
             }
         }
 
-        /// <summary>
-        /// Determines if a key combination should be allowed while editing.
-        /// </summary>
         private bool IsAllowedWhileEditing(KeyEventArgs e)
         {
             // Allow Undo/Redo even while editing in most controls
@@ -229,12 +224,21 @@ namespace CSharpSamplesCutter.Forms
             // ✅ Snapshot in der richtigen Collection erstellen
             await targetCollection.PushSnapshotAsync(track.Id);
             this.UpdateUndoLabel();
-            
+
             await track.EraseSelectionAsync(startSample, endSample);
             LogCollection.Log($"Deleted selection on track: {track.Name}");
 
             this.UpdateSelectedCollectionListBox();
             this.UpdateViewingElements();
+
+            // ✅ NACH Erase: Loop-Grenzen neu berechnen!
+            if (this.loopState.LoopEnabled && track.PlayerPlaying)
+            {
+                this.UpdateLoopBounds();
+                long loopStartSample = track.LoopStartFrames * track.Channels;
+                long loopEndSample = track.LoopEndFrames * track.Channels;
+                track.UpdateLoopBoundsDuringPlayback(loopStartSample, loopEndSample);
+            }
 
             e.Handled = true;
         }
@@ -269,97 +273,123 @@ namespace CSharpSamplesCutter.Forms
 
             if (this.SelectionMode.Equals("Select", StringComparison.OrdinalIgnoreCase))
             {
-                bool isPlaying = track.Playing;
-                bool isPaused = track.Paused;
                 int ch = Math.Max(1, track.Channels);
 
-                // ✅ Bei Loop: Nutze GetLoopRange() um zum Loop-Start zu springen
-                long targetFrame = 0;
+                // ✅ IMMER: Stoppe aktuelles Playback komplett
+                try { await track.StopAsync(); } catch { }
+                this.PlaybackCancellationTokens.TryRemove(track.Id, out _);
+
+                // ✅ Bevorzugten Startpunkt ermitteln (manuell gesetzter Start hat Vorrang)
+                long preferredStartFrame = 0;
+                if (track.StartingOffset > 0)
+                {
+                    preferredStartFrame = Math.Max(0, track.StartingOffset / ch);
+                }
+                else if (track.Position > 0)
+                {
+                    preferredStartFrame = track.Position;
+                }
+
+                // ✅ Bestimme Zielposition (manueller Startpunkt, ggf. Loop-Start)
+                long targetFrame;
                 if (this.loopState.LoopEnabled)
                 {
                     var (loopStart, loopEnd) = this.GetLoopRange();
-                    targetFrame = loopStart;
+                    // Nutze den manuellen Startpunkt, wenn er innerhalb der Loop liegt, sonst Loop-Start
+                    if (preferredStartFrame >= loopStart && preferredStartFrame < loopEnd)
+                    {
+                        targetFrame = preferredStartFrame;
+                    }
+                    else
+                    {
+                        targetFrame = loopStart;
+                    }
                 }
                 else
                 {
-                    targetFrame = track.StartingOffset > 0 
-                        ? track.StartingOffset / ch 
-                        : 0;
+                    // Ohne Loop immer zum manuellen Startpunkt (oder 0 falls nicht gesetzt)
+                    targetFrame = preferredStartFrame;
                 }
 
-                if (isPlaying || isPaused)
+                // ✅ Setze Position und StartingOffset KONSISTENT
+                if (track.PlayerPlaying)
                 {
-                    try
-                    {
-                        await track.PauseAsync();
-                    }
-                    catch
-                    {
-                    }
-
-                    track.SetPosition(targetFrame);
-                    track.StartingOffset = targetFrame * ch;
-
-                    int width = Math.Max(1, this.pictureBox_wave.Width);
-                    int spp = this.SamplesPerPixel;
-                    long viewFrames = (long) width * Math.Max(1, spp);
-                    long totalFrames = Math.Max(1, track.Length / Math.Max(1, ch));
-                    long maxOffset = Math.Max(0, totalFrames - viewFrames);
-                    float caretPosClamped = Math.Clamp(this.CaretPosition, 0f, 1f);
-                    long caretInViewFrames = (long) Math.Round(viewFrames * caretPosClamped);
-                    long newOffset = targetFrame - caretInViewFrames;
-                    this.ViewOffsetFrames = Math.Clamp(newOffset, 0, maxOffset);
-                    this.ClampViewOffset();
-                    this.RecalculateScrollBar();
-                    track.ScrollOffset = this.ViewOffsetFrames;
-
-                    if (!track.Playing || track.Paused)
-                    {
-                        try
-                        {
-                            await track.PauseAsync();
-                        }
-                        catch
-                        {
-                        }
-                    }
+                    // während Playback: ohne Re-Init direkt springen
+                    track.FastSeekWhilePlaying(targetFrame);
                 }
                 else
                 {
                     track.SetPosition(targetFrame);
                     track.StartingOffset = targetFrame * ch;
+                }
 
-                    int width = Math.Max(1, this.pictureBox_wave.Width);
-                    int spp = this.SamplesPerPixel;
-                    long viewFrames = (long) width * Math.Max(1, spp);
-                    long totalFrames = Math.Max(1, track.Length / Math.Max(1, ch));
-                    long maxOffset = Math.Max(0, totalFrames - viewFrames);
-                    float caretPosClamped = Math.Clamp(this.CaretPosition, 0f, 1f);
-                    long caretInViewFrames = (long) Math.Round(viewFrames * caretPosClamped);
-                    long newOffset = targetFrame - caretInViewFrames;
-                    this.ViewOffsetFrames = Math.Clamp(newOffset, 0, maxOffset);
-                    this.ClampViewOffset();
-                    this.RecalculateScrollBar();
-                    track.ScrollOffset = this.ViewOffsetFrames;
+                // ✅ View aktualisieren damit Caret konsistent bleibt
+                int width = Math.Max(1, this.pictureBox_wave.Width);
+                int spp = this.SamplesPerPixel;
+                long viewFrames = (long) width * Math.Max(1, spp);
+                long totalFrames = Math.Max(1, track.Length / Math.Max(1, ch));
+                long maxOffset = Math.Max(0, totalFrames - viewFrames);
+                float caretPosClamped = Math.Clamp(this.CaretPosition, 0f, 1f);
+                long caretInViewFrames = (long) Math.Round(viewFrames * caretPosClamped);
+                long newOffset = targetFrame - caretInViewFrames;
+                this.ViewOffsetFrames = Math.Clamp(newOffset, 0, maxOffset);
+                this.ClampViewOffset();
+                this.RecalculateScrollBar();
+                track.ScrollOffset = this.ViewOffsetFrames;
 
-                    try
+                // ✅ Loop-Grenzen aktualisieren BEVOR Playback startet
+                if (this.loopState.LoopEnabled)
+                {
+                    this.UpdateLoopBounds(adjustStartIfOutside: false); // Position bereits gesetzt
+                }
+
+                // --- CARET-FOLLOWING beim Backspace immer aktivieren ---
+                bool oldSync = this.checkBox_sync.Checked;
+                this.checkBox_sync.Checked = true;
+                // Markiere diesen Track damit der Timer das Viewport-Follow erzwingt
+                this.AddPlaybackForceFollow(track.Id);
+
+                // ✅ IMMER starten: Neues Playback mit korrekten Loop-Parametern
+                try
+                {
+                    long loopStartSample = track.LoopStartFrames * track.Channels;
+                    long loopEndSample = track.LoopEndFrames * track.Channels;
+
+                    if (!track.PlayerPlaying)
                     {
-                        // ✅ Aktualisiere Loop-Grenzen BEVOR Playback startet
-                        if (this.loopState.LoopEnabled)
+                        var cts = new CancellationTokenSource();
+                        this.PlaybackCancellationTokens[track.Id] = cts.Token;
+                        this.button_playback.Text = "■";
+
+                        var onStopped = new Action(() =>
                         {
-                            this.UpdateLoopBounds();
-                        }
+                            this.Invoke(() =>
+                            {
+                                this.button_playback.Text = "▶";
+                                this.PlaybackCancellationTokens.TryRemove(track.Id, out _);
+                                // Nach dem Stop: force-follow entfernen und Sync-Checkbox zurücksetzen
+                                this.RemovePlaybackForceFollow(track.Id);
+                                this.checkBox_sync.Checked = oldSync;
+                            });
+                        });
 
-                        // ✅ Loop-Parameter übergeben
-                        long loopStartSample = track.LoopStartFrames * track.Channels;
-                        long loopEndSample = track.LoopEndFrames * track.Channels;
-                        
-                        await track.PlayAsync(CancellationToken.None, null, this.Volume, loopStartSample: loopStartSample, loopEndSample: loopEndSample, desiredLatency: 90);
+                        await track.PlayAsync(cts.Token, onStopped, this.Volume, loopStartSample: loopStartSample, loopEndSample: loopEndSample, desiredLatency: 90);
                     }
-                    catch
+                    else
                     {
+                        // Bereits spielend: nur ggf. Loop-Grenzen live aktualisieren und weiterlaufen
+                        track.UpdateLoopBoundsDuringPlayback(loopStartSample, loopEndSample);
+                        this.button_playback.Text = "■";
                     }
                 }
+                catch (Exception ex)
+                {
+                    LogCollection.Log($"Backspace playback start failed: {ex.Message}");
+                    this.RemovePlaybackForceFollow(track.Id);
+                    this.checkBox_sync.Checked = oldSync;
+                }
+
+                this.UpdateViewingElements();
             }
             else if (this.SelectionMode.Equals("Erase", StringComparison.OrdinalIgnoreCase))
             {
@@ -399,102 +429,36 @@ namespace CSharpSamplesCutter.Forms
                 {
                     await track.CutOffAfterAsync(startSample);
                 }
-            }
 
-            e.Handled = true;
-        }
-
-        private async void Form_Space_Pressed(object? sender, KeyEventArgs e)
-        {
-            if (e.KeyCode != Keys.Space || e.Handled)
-            {
-                return;
-            }
-
-            if (this.IsEditingContext())
-            {
-                return;
-            }
-
-            var track = this.SelectedTrack;
-            if (track == null)
-            {
-                return;
-            }
-
-            var now = DateTime.UtcNow;
-            if (this.SpaceKeyDebounceActive || (now - this.LastSpaceToggleUtc).TotalMilliseconds < 180)
-            {
-                return;
-            }
-
-            this.SpaceKeyDebounceActive = true;
-            this.LastSpaceToggleUtc = now;
-
-            try
-            {
-                if (track.Playing || track.Paused)
+                // ✅ WICHTIG: Nach Erase Loop-Grenzen neu berechnen!
+                if (this.loopState.LoopEnabled)
                 {
-                    await track.PauseAsync();
-                    this.button_pause.ForeColor = track.Paused ? Color.DarkGray : Color.Black;
-                }
-                else
-                {
-                    // ✅ Aktualisiere Loop-Grenzen BEVOR Playback startet
-                    if (this.loopState.LoopEnabled)
+                    this.UpdateLoopBounds();
+
+                    // Wenn Track läuft: LIVE Update
+                    if (track.PlayerPlaying)
                     {
-                        this.UpdateLoopBounds();
+                        long loopStartSample = track.LoopStartFrames * track.Channels;
+                        long loopEndSample = track.LoopEndFrames * track.Channels;
+                        track.UpdateLoopBoundsDuringPlayback(loopStartSample, loopEndSample);
                     }
-
-                    var onPlaybackStopped = new Action(() =>
-                    {
-                        this.button_playback.Invoke(() => this.button_playback.Text = "▶");
-                        this.PlaybackCancellationTokens.TryRemove(track.Id, out _);
-                    });
-
-                    var cts = new CancellationTokenSource();
-                    this.PlaybackCancellationTokens[track.Id] = cts.Token;
-                    this.button_playback.Text = "■";
-                    
-                    // ✅ Loop-Parameter übergeben
-                    long loopStartSample = track.LoopStartFrames * track.Channels;
-                    long loopEndSample = track.LoopEndFrames * track.Channels;
-                    
-                    await track.PlayAsync(cts.Token, onPlaybackStopped, this.Volume, loopStartSample: loopStartSample, loopEndSample: loopEndSample, desiredLatency: 120);
                 }
-            }
-            finally
-            {
-                _ = Task.Run(async () =>
-                {
-                    await Task.Delay(120);
-                    this.SpaceKeyDebounceActive = false;
-                });
             }
 
             e.Handled = true;
         }
 
-        /// <summary>
-        /// Gibt zurück, ob sich der Fokus in einem editierbaren Steuerelement befindet.
-        /// </summary>
         private bool IsEditingContext()
         {
             var focused = this.ActiveControl;
             return focused is TextBoxBase || focused is ComboBox || focused is NumericUpDown;
         }
 
-        /// <summary>
-        /// Aktualisiert die Anzeige der aktuell ausgewählten Collection ListBox.
-        /// </summary>
         private void UpdateSelectedCollectionListBox()
         {
             this.SelectedCollectionListBox?.Invalidate();
         }
 
-        /// <summary>
-        /// Aktualisiert die Anzeige des Undo-Labels.
-        /// </summary>
         private void UpdateUndoLabel()
         {
             // Beispielimplementierung: Setzen Sie hier die Logik, wie das Undo-Label aktualisiert werden soll.

@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace CSharpSamplesCutter.Forms.MainWindow.ViewModels
+namespace CSharpSamplesCutter.Forms.Forms.MainWindow.ViewModels
 {
     /// <summary>
     ///  Modelliert Playback-bezogene UI-Zustände und Tokens.

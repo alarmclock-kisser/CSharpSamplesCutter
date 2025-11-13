@@ -1,4 +1,4 @@
-namespace CSharpSamplesCutter.Forms.MainWindow.ViewModels
+namespace CSharpSamplesCutter.Forms.Forms.MainWindow.ViewModels
 {
     /// <summary>
     ///  Verwaltet Scroll- und Ansichtsstatus der Wellenformdarstellung.

@@ -14,6 +14,37 @@ namespace CSharpSamplesCutter.Forms
         {
             int selectedIndex = this.listBox_audios.SelectedIndex;
 
+            // Alt-click load random resource audio file
+            if (ModifierKeys.HasFlag(Keys.Alt))
+            {
+                var resourceAudios = Directory.GetFiles(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources"), "*.*", SearchOption.AllDirectories)
+                    .Select(path => AudioCollection.VerifyAudioFile(path))
+                    .Where(path => path != null)
+                    .ToList();
+
+                if (resourceAudios.Count <= 0)
+                {
+                    LogCollection.Log("No valid resource audio files found.");
+                    return;
+				}
+
+                var random = new Random();
+                var randomIndex = random.Next(0, resourceAudios.Count);
+                var randomFilePath = resourceAudios[randomIndex]!;
+                var audioObj = await this.AudioC.LoadAsync(randomFilePath);
+				if (audioObj == null)
+                {
+                    LogCollection.Log($"Failed to load audio file: {randomFilePath}");
+                    return;
+                }
+
+                this.listBox_audios.SelectedIndex = -1;
+                this.listBox_audios.SelectedIndex = Math.Clamp(selectedIndex, -1, this.listBox_audios.Items.Count - 1);
+                LogCollection.Log($"Loaded random resource audio sample: {audioObj.Name}");
+
+				return;
+            }
+
             if (ModifierKeys.HasFlag(Keys.Control) & !ModifierKeys.HasFlag(Keys.Shift))
             {
                 using (var loadDialog = new Dialogs.LoadDialog())
