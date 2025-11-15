@@ -47,7 +47,7 @@ namespace CSharpSamplesCutter.Forms
                     await this.AudioC_res.StopAllAsync(false);
                 }
 
-                // ✅ Loop-Grenzen VOR PlayAsync setzen (nutzt GetLoopRange)
+                // Loop-Grenzen vor PlayAsync setzen
                 if (this.loopState.LoopEnabled)
                 {
                     this.UpdateLoopBounds();
@@ -56,15 +56,12 @@ namespace CSharpSamplesCutter.Forms
                 this.PlaybackCancellationTokens.AddOrUpdate(track.Id, new CancellationToken(), (key, oldValue) => new CancellationToken());
                 this.button_playback.Text = "■";
 
-                // ✅ Loop-Grenzen als SAMPLES an PlayAsync übergeben!
                 long loopStartSample = track.LoopStartFrames * track.Channels;
                 long loopEndSample = track.LoopEndFrames * track.Channels;
 
-                // IMPORTANT: Damit die Wiedergabe innerhalb der Loop-Region beginnt, setze die StartingOffset
-                if (this.loopState.LoopEnabled && loopEndSample > loopStartSample)
+                // Nur wenn aktuelle Position außerhalb der Loop liegt, an den Loop-Anfang springen
+                if (this.loopState.LoopEnabled && track.Position >= 0 && (track.Position < track.LoopStartFrames || track.Position >= track.LoopEndFrames))
                 {
-                    track.StartingOffset = loopStartSample;
-                    // Setze auch die frame-basierte Position damit UI/Position sofort konsistent ist
                     try { track.SetPosition(track.LoopStartFrames); } catch { }
                 }
 
@@ -72,18 +69,15 @@ namespace CSharpSamplesCutter.Forms
             }
             else if (track.Paused)
             {
-                // ✅ RESUME: Loop-Grenzen MÜSSEN weitergegeben werden!
+                // Resume mit/ohne Loop-Info
                 if (this.loopState.LoopEnabled)
                 {
                     long loopStartSample = track.LoopStartFrames * track.Channels;
                     long loopEndSample = track.LoopEndFrames * track.Channels;
-
-                    // Resume mit Loop-Info
                     await track.PlayAsync(this.PlaybackCancellationTokens.GetValueOrDefault(track.Id), null, this.Volume, loopStartSample: loopStartSample, loopEndSample: loopEndSample);
                 }
                 else
                 {
-                    // Resume ohne Loop
                     await track.PlayAsync(this.PlaybackCancellationTokens.GetValueOrDefault(track.Id), null, this.Volume);
                 }
             }
@@ -143,13 +137,12 @@ namespace CSharpSamplesCutter.Forms
                 }
                 else if (track.Paused)
                 {
-                    // ✅ RESUME: Loop-Grenzen MÜSSEN weitergegeben werden!
+                    // Resume: Loop-Grenzen weitergeben
                     if (this.loopState.LoopEnabled)
                     {
                         long loopStartSample = track.LoopStartFrames * track.Channels;
                         long loopEndSample = track.LoopEndFrames * track.Channels;
 
-                        // ✅ Resume mit Loop-Info
                         await track.PlayAsync(
                             CancellationToken.None,
                             null,
@@ -166,7 +159,7 @@ namespace CSharpSamplesCutter.Forms
                 }
                 else
                 {
-                    // ✅ START: Aktualisiere Loop-Grenzen BEVOR Playback startet
+                    // Start: ggf. Loop-Grenzen aktualisieren
                     if (this.loopState.LoopEnabled)
                     {
                         this.UpdateLoopBounds();
@@ -182,14 +175,12 @@ namespace CSharpSamplesCutter.Forms
                     this.PlaybackCancellationTokens[track.Id] = cts.Token;
                     this.button_playback.Text = "■";
 
-                    // ✅ Loop-Parameter übergeben
                     long loopStartSample = track.LoopStartFrames * track.Channels;
                     long loopEndSample = track.LoopEndFrames * track.Channels;
 
-                    // Ensure playback starts at loop start
-                    if (this.loopState.LoopEnabled && loopEndSample > loopStartSample)
+                    // Start NICHT erzwingen: nur falls außerhalb der Loop-Grenzen zur Loop-Startposition springen
+                    if (this.loopState.LoopEnabled && track.Position >= 0 && (track.Position < track.LoopStartFrames || track.Position >= track.LoopEndFrames))
                     {
-                        track.StartingOffset = loopStartSample;
                         try { track.SetPosition(track.LoopStartFrames); } catch { }
                     }
 

@@ -10,10 +10,6 @@ namespace CSharpSamplesCutter.Forms
 {
     public partial class WindowMain
     {
-        // NEU: Debounce / Reentrancy für Backspace
-        private bool BackspaceKeyDebounceActive = false;
-        private DateTime LastBackspaceToggleUtc = DateTime.MinValue;
-
         private void Form_KeyDown(object? sender, KeyEventArgs e)
         {
             // Skip handling if user is editing in a control (except for allowed keys)
@@ -254,7 +250,6 @@ namespace CSharpSamplesCutter.Forms
                 return;
             }
 
-            // Sofort markieren (verhindert Auto-Repeat Doppel-Handling)
             e.Handled = true;
 
             if (this.IsEditingContext())
@@ -262,7 +257,7 @@ namespace CSharpSamplesCutter.Forms
                 return;
             }
 
-            // Ctrl+Backspace: Alles stoppen
+            // Ctrl+Backspace: Stop all
             if (ModifierKeys.HasFlag(Keys.Control))
             {
                 await this.AudioC.StopAllAsync();
@@ -272,19 +267,9 @@ namespace CSharpSamplesCutter.Forms
                 return;
             }
 
-            // Debounce / Reentrancy
-            var now = DateTime.UtcNow;
-            if (this.BackspaceKeyDebounceActive || (now - this.LastBackspaceToggleUtc).TotalMilliseconds < 140)
-            {
-                return;
-            }
-            this.BackspaceKeyDebounceActive = true;
-            this.LastBackspaceToggleUtc = now;
-
             var track = this.SelectedTrack;
             if (track == null)
             {
-                this.BackspaceKeyDebounceActive = false;
                 return;
             }
 
@@ -292,69 +277,24 @@ namespace CSharpSamplesCutter.Forms
             {
                 if (this.SelectionMode.Equals("Select", StringComparison.OrdinalIgnoreCase))
                 {
-                    bool wasPlaying = track.PlayerPlaying;
-                    bool wasPaused = track.Paused;
-                    int ch = Math.Max(1, track.Channels);
-
-                    // Loop oder Track-Beginn als hartes Reset
-                    long targetFrame;
-                    if (this.loopState.LoopEnabled)
-                    {
-                        var (loopStart, _) = this.GetLoopRange();
-                        targetFrame = loopStart;
-                    }
-                    else
-                    {
-                        targetFrame = 0; // immer zum Anfang statt StartingOffset
-                    }
-
-                    // Nur pausieren falls nötig
-                    if (wasPlaying || wasPaused)
+                    // Pause if playing
+                    if (track.PlayerPlaying)
                     {
                         try { await track.PauseAsync(); } catch { }
                     }
 
-                    // Position setzen
-                    track.SetPosition(targetFrame);
-                    track.StartingOffset = targetFrame * ch;
-
-                    // Scroll neu ausrichten (Caret bleibt an definierter relativer Position)
-                    int width = Math.Max(1, this.pictureBox_wave.Width);
-                    int spp = Math.Max(1, this.SamplesPerPixel);
-                    long viewFrames = (long) width * spp;
-                    long totalFrames = Math.Max(1, track.Length / ch);
-                    long maxOffset = Math.Max(0, totalFrames - viewFrames);
-                    float caretPosClamped = Math.Clamp(this.CaretPosition, 0f, 1f);
-                    long caretInViewFrames = (long) Math.Round(viewFrames * caretPosClamped);
-                    long newOffset = targetFrame - caretInViewFrames;
-                    this.ViewOffsetFrames = Math.Clamp(newOffset, 0, maxOffset);
-                    this.ClampViewOffset();
-
-                    this.SuppressScrollEvent = true;
-                    try { this.RecalculateScrollBar(); }
-                    finally { this.SuppressScrollEvent = false; }
-
-                    track.ScrollOffset = this.ViewOffsetFrames;
-                    _ = this.RedrawWaveformImmediateAsync();
-
-                    // Wiedergabe reaktivieren falls vorher spielte
-                    if (wasPlaying || (!wasPlaying && !wasPaused))
+                    // Rewind to loop-start (if loop enabled) or to absolute start
+                    if (this.loopState.LoopEnabled)
                     {
-                        try
-                        {
-                            if (this.loopState.LoopEnabled)
-                            {
-                                this.UpdateLoopBounds();
-                            }
-                            long loopStartSample = track.LoopStartFrames * track.Channels;
-                            long loopEndSample = track.LoopEndFrames * track.Channels;
-                            await track.PlayAsync(CancellationToken.None, null, this.Volume,
-                                loopStartSample: loopStartSample,
-                                loopEndSample: loopEndSample,
-                                desiredLatency: 90);
-                        }
-                        catch { }
+                        this.UpdateLoopBounds();
+                        track.SetPosition(track.LoopStartFrames);
                     }
+                    else
+                    {
+                        track.SetPosition(0);
+                    }
+
+                    _ = this.RedrawWaveformImmediateAsync();
                 }
                 else if (this.SelectionMode.Equals("Erase", StringComparison.OrdinalIgnoreCase))
                 {
@@ -392,15 +332,7 @@ namespace CSharpSamplesCutter.Forms
                     }
                 }
             }
-            finally
-            {
-                // Debounce Reset
-                _ = Task.Run(async () =>
-                {
-                    await Task.Delay(130);
-                    this.BackspaceKeyDebounceActive = false;
-                });
-            }
+            catch { }
         }
 
         private bool IsEditingContext()
