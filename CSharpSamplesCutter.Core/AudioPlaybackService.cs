@@ -48,6 +48,11 @@ namespace CSharpSamplesCutter.Core
         private readonly object loopGate = new(); // ✅ Für thread-safe Updates
         public WaveFormat WaveFormat { get; }
 
+        public long CurrentSampleIndex
+        {
+            get { return System.Threading.Volatile.Read(ref this.position); }
+        }
+
         public LoopingSampleProvider(float[] data, int sampleRate, int channels, long startSampleIndex = 0, long loopStart = 0, long loopEnd = 0)
         {
             this.data = data ?? throw new ArgumentNullException(nameof(data));
@@ -207,6 +212,15 @@ namespace CSharpSamplesCutter.Core
 
         public event EventHandler<StoppedEventArgs>? PlaybackStopped;
 
+        // Nur intern für AudioObj.DisableLoopNow – aktuelles Sample (ohne Resampler-Verschiebung)
+        internal long GetLoopingCurrentSampleIndexUnsafe()
+        {
+            if (this.loopingProvider != null)
+            {
+                try { return this.loopingProvider.CurrentSampleIndex; } catch { return 0; }
+            }
+            return 0;
+        }
         public AudioPlaybackService()
         {
             this.player = new WaveOutEvent();
@@ -319,6 +333,12 @@ namespace CSharpSamplesCutter.Core
             if (this.switching == null || this.rawData == null)
             {
                 return;
+            }
+
+            // Wenn wir aus einem Loop kommen, nimm exakte aktuelle Position des Loop-Providers
+            if (this.loopingProvider != null)
+            {
+                try { currentSampleIndex = this.loopingProvider.CurrentSampleIndex; } catch { }
             }
 
             this.loopStartCurrent = 0;

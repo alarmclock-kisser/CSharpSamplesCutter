@@ -35,7 +35,9 @@ namespace CSharpSamplesCutter.Forms
             this.button_remove.Enabled = false;
             this.hScrollBar_scroll.Enabled = false;
 
-            this.AudioC.Audios.ListChanged += (s, ev) =>
+            
+
+			this.AudioC.Audios.ListChanged += (s, ev) =>
             {
                 this.numericUpDown_skipTracks.Maximum = this.AudioC.Audios.Count;
                 if (this.numericUpDown_skipTracks.Value > this.numericUpDown_skipTracks.Maximum)

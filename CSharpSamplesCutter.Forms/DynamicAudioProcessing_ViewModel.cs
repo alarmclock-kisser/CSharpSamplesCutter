@@ -97,6 +97,11 @@ namespace CSharpSamplesCutter.Forms
             this.Button_go.Click += async (s, e) =>
             {
                 await this.InvokeSelectedMethodAsync().ConfigureAwait(false);
+                // After processing, restore focus to selected track/waveform so hotkeys work
+                if (this.MainWindow is WindowMain win)
+                {
+                    win.BeginInvoke((Action)(() => win.RestoreFocusAfterProcessing()));
+                }
             };
 
             this.RegisterProcessingMethods();

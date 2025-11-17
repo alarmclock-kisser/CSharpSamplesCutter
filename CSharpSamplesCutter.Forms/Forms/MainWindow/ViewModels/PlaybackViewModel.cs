@@ -14,5 +14,8 @@ namespace CSharpSamplesCutter.Forms.Forms.MainWindow.ViewModels
         public DateTime LastSpaceToggleUtc { get; set; } = DateTime.MinValue;
 
         public bool SpaceKeyDebounceActive { get; set; }
+
+        // One-shot handling for Space: set on KeyDown, cleared on KeyUp
+        public bool SpaceDownHandled { get; set; }
     }
 }

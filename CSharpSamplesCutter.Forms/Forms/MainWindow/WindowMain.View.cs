@@ -233,7 +233,7 @@ namespace CSharpSamplesCutter.Forms
 					return;
 				}
 
-				bool follow = this.checkBox_sync.Checked && track.PlayerPlaying;
+				bool follow = ((this.checkBox_sync.Checked) || this.IsPlaybackForceFollow(track.Id)) && track.PlayerPlaying;
 
 				if (follow)
 				{
@@ -447,6 +447,12 @@ namespace CSharpSamplesCutter.Forms
 
             try
             {
+                // SPP individuell je Track wiederherstellen
+                if (track.LastSamplesPerPixel > 0 && this.numericUpDown_samplesPerPixel.Value != track.LastSamplesPerPixel)
+                {
+                    this.numericUpDown_samplesPerPixel.Value = Math.Clamp(track.LastSamplesPerPixel, (int)this.numericUpDown_samplesPerPixel.Minimum, (int)this.numericUpDown_samplesPerPixel.Maximum);
+                }
+
                 int spp = this.SamplesPerPixel;
                 long totalFrames = Math.Max(1, track.Length / Math.Max(1, track.Channels));
                 float liveCaretPosLocal = track.PlayerPlaying ? Math.Clamp((float)track.Position / (float)totalFrames, 0f, 1f) : this.CaretPosition;
@@ -678,6 +684,36 @@ namespace CSharpSamplesCutter.Forms
 
                 numeric.Tag = numeric.Value;
             };
+        }
+
+        /// <summary>
+        /// Selektiert den angegebenen Track in der passenden ListBox und aktualisiert die UI konsistent.
+        /// </summary>
+        private void SelectTrackAndUpdateUI(AudioObj? track)
+        {
+            if (track == null)
+                return;
+
+            // Finde ListBox und Index
+            ListBox? listBox = null;
+            int index = -1;
+            if (this.AudioC.Audios.Any(a => a.Id == track.Id))
+            {
+                listBox = this.listBox_audios;
+                index = this.AudioC.Audios.ToList().FindIndex(a => a.Id == track.Id);
+            }
+            else if (this.AudioC_res.Audios.Any(a => a.Id == track.Id))
+            {
+                listBox = this.listBox_reserve;
+                index = this.AudioC_res.Audios.ToList().FindIndex(a => a.Id == track.Id);
+            }
+            if (listBox != null && index >= 0)
+            {
+                listBox.SelectedIndex = -1;
+                listBox.SelectedIndex = index;
+                // UI-Update erzwingen
+                this.UpdateViewingElements();
+            }
         }
     }
 }

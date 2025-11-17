@@ -13,12 +13,13 @@ namespace CSharpSamplesCutter.Forms
         private async void button_load_Click(object sender, EventArgs e)
         {
             int selectedIndex = this.listBox_audios.SelectedIndex;
+            int oldCount = this.AudioC.Audios.Count;
 
             // Alt-click load random resource audio file
             if (ModifierKeys.HasFlag(Keys.Alt))
             {
                 var resourceAudios = Directory.GetFiles(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources"), "*.*", SearchOption.AllDirectories)
-                    .Select(path => AudioCollection.VerifyAudioFile(path))
+                    .Select(AudioCollection.VerifyAudioFile)
                     .Where(path => path != null)
                     .ToList();
 
@@ -42,7 +43,9 @@ namespace CSharpSamplesCutter.Forms
                 this.listBox_audios.SelectedIndex = Math.Clamp(selectedIndex, -1, this.listBox_audios.Items.Count - 1);
                 LogCollection.Log($"Loaded random resource audio sample: {audioObj.Name}");
 
-				return;
+                // Nach Import letzten Track selektieren und UI aktualisieren
+                this.SelectTrackAndUpdateUI(audioObj);
+                return;
             }
 
             if (ModifierKeys.HasFlag(Keys.Control) & !ModifierKeys.HasFlag(Keys.Shift))
@@ -61,6 +64,9 @@ namespace CSharpSamplesCutter.Forms
                         this.listBox_audios.Refresh();
                         this.listBox_audios.SelectedIndex = -1;
                         this.listBox_audios.SelectedIndex = Math.Clamp(selectedIndex, -1, this.listBox_audios.Items.Count - 1);
+                        // Nach Import letzten Track selektieren und UI aktualisieren
+                        if (results.Count > 0)
+                            this.SelectTrackAndUpdateUI(results.Last());
                     }
                 }
             }
@@ -80,6 +86,10 @@ namespace CSharpSamplesCutter.Forms
                     this.listBox_audios.SelectedIndex = -1;
                     this.listBox_audios.SelectedIndex = this.listBox_audios.Items.Count - 1;
                     LogCollection.Log($"{loadedCount} audio samples loaded from directory.");
+                    // Nach Import letzten Track selektieren und UI aktualisieren
+                    var last = loadedAudioObjs.LastOrDefault(a => a != null);
+                    if (last != null)
+                        this.SelectTrackAndUpdateUI(last);
                 }
             }
             else
@@ -102,6 +112,7 @@ namespace CSharpSamplesCutter.Forms
                 if (ofd.ShowDialog(this) == DialogResult.OK)
                 {
                     int loadedCount = 0;
+                    AudioObj? lastLoaded = null;
                     foreach (var filePath in ofd.FileNames)
                     {
                         var verifiedPath = AudioCollection.VerifyAudioFile(filePath);
@@ -116,6 +127,7 @@ namespace CSharpSamplesCutter.Forms
 
                             this.AudioC.Audios.Add(audioObj);
                             loadedCount++;
+                            lastLoaded = audioObj;
                         }
                         else
                         {
@@ -126,6 +138,9 @@ namespace CSharpSamplesCutter.Forms
                     this.listBox_audios.SelectedIndex = -1;
                     this.listBox_audios.SelectedIndex = this.listBox_audios.Items.Count - 1;
                     LogCollection.Log($"{loadedCount} audio samples loaded.");
+                    // Nach Import letzten Track selektieren und UI aktualisieren
+                    if (lastLoaded != null)
+                        this.SelectTrackAndUpdateUI(lastLoaded);
                 }
             }
         }

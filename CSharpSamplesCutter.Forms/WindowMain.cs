@@ -86,9 +86,34 @@ namespace CSharpSamplesCutter.Forms
 
             // Register global keyboard event handler with editing-context protection
             this.KeyDown += this.Form_KeyDown;
-            this.KeyPreview = true; // Ensure KeyDown fires before child controls
-
+            this.KeyPreview = true;
+            RegisterPreviewKeyDownRecursive(this);
             this.Load += this.WindowMain_Load;
+        }
+
+        // Rekursiv für alle Controls außer den beiden ListBoxen PreviewKeyDown registrieren
+        private void RegisterPreviewKeyDownRecursive(Control parent)
+        {
+            foreach (Control ctrl in parent.Controls)
+            {
+                if (ctrl != this.listBox_audios && ctrl != this.listBox_reserve)
+                {
+                    ctrl.PreviewKeyDown += Control_PreviewKeyDown_ForceArrowKeys;
+                }
+                if (ctrl.HasChildren)
+                {
+                    RegisterPreviewKeyDownRecursive(ctrl);
+                }
+            }
+        }
+
+        // Links/Rechts/Hoch/Runter als InputKey markieren, damit KeyDown im Form immer ausgelöst wird
+        private void Control_PreviewKeyDown_ForceArrowKeys(object? sender, PreviewKeyDownEventArgs e)
+        {
+            if (e.KeyCode == Keys.Left || e.KeyCode == Keys.Right || e.KeyCode == Keys.Up || e.KeyCode == Keys.Down)
+            {
+                e.IsInputKey = true;
+            }
         }
 
         public AudioCollection AudioC { get; }
@@ -101,7 +126,7 @@ namespace CSharpSamplesCutter.Forms
 
         private int SamplesPerPixel => Math.Max(1, (int) this.numericUpDown_samplesPerPixel.Value);
 
-        private float Volume => Math.Clamp(this.vScrollBar_volume.Value / (float) Math.Max(1, this.vScrollBar_volume.Maximum), 0f, 1f);
+        private float Volume => 1.0f - Math.Clamp(this.vScrollBar_volume.Value / (float) Math.Max(1, this.vScrollBar_volume.Maximum), 0f, 1f);
 
         private bool DrawEachChannel => this.checkBox_drawEachChannel.Checked;
 
@@ -553,6 +578,39 @@ namespace CSharpSamplesCutter.Forms
                 int newValue = (int)Math.Round(Math.Clamp(value, 0f, 1f) * this.hScrollBar_caretPosition.Maximum);
                 this.hScrollBar_caretPosition.Value = Math.Clamp(newValue, this.hScrollBar_caretPosition.Minimum, this.hScrollBar_caretPosition.Maximum);
             }
+        }
+
+        // Restore focus to a neutral control for global playback keys after actions
+        internal void RestoreFocusAfterProcessing()
+        {
+            try
+            {
+                // Prefer the waveform surface so Space/Backspace work immediately
+                if (this.pictureBox_wave != null && !this.pictureBox_wave.IsDisposed && this.pictureBox_wave.CanFocus)
+                {
+                    this.pictureBox_wave.Focus();
+                    this.ActiveControl = this.pictureBox_wave;
+                    return;
+                }
+
+                // Fallback: focus the list box that currently has a selection
+                if (this.listBox_audios.SelectedIndices.Count > 0 && this.listBox_audios.CanFocus)
+                {
+                    this.listBox_audios.Focus();
+                    this.ActiveControl = this.listBox_audios;
+                }
+                else if (this.listBox_reserve.SelectedIndices.Count > 0 && this.listBox_reserve.CanFocus)
+                {
+                    this.listBox_reserve.Focus();
+                    this.ActiveControl = this.listBox_reserve;
+                }
+                else
+                {
+                    // Last resort: focus the form
+                    this.Focus();
+                }
+            }
+            catch { }
         }
     }
 }

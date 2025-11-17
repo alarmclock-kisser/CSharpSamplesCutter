@@ -66,9 +66,7 @@
             this.numericUpDown_timeMarkers = new NumericUpDown();
             this.label_info_caretWidth = new Label();
             this.numericUpDown_caretWidth = new NumericUpDown();
-            this.label1 = new Label();
             this.checkBox_scrollLog = new CheckBox();
-            this.numericUpDown1 = new NumericUpDown();
             this.label_info_frameRate = new Label();
             this.numericUpDown_frameRate = new NumericUpDown();
             this.button_colorCaret = new Button();
@@ -113,7 +111,6 @@
             this.groupBox1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize) this.numericUpDown_timeMarkers).BeginInit();
             ((System.ComponentModel.ISupportInitialize) this.numericUpDown_caretWidth).BeginInit();
-            ((System.ComponentModel.ISupportInitialize) this.numericUpDown1).BeginInit();
             ((System.ComponentModel.ISupportInitialize) this.numericUpDown_frameRate).BeginInit();
             ((System.ComponentModel.ISupportInitialize) this.numericUpDown_hue).BeginInit();
             this.groupBox_audioScanner.SuspendLayout();
@@ -453,9 +450,7 @@
             this.groupBox1.Controls.Add(this.numericUpDown_timeMarkers);
             this.groupBox1.Controls.Add(this.label_info_caretWidth);
             this.groupBox1.Controls.Add(this.numericUpDown_caretWidth);
-            this.groupBox1.Controls.Add(this.label1);
             this.groupBox1.Controls.Add(this.checkBox_scrollLog);
-            this.groupBox1.Controls.Add(this.numericUpDown1);
             this.groupBox1.Controls.Add(this.label_info_frameRate);
             this.groupBox1.Controls.Add(this.numericUpDown_frameRate);
             this.groupBox1.Controls.Add(this.button_colorCaret);
@@ -548,15 +543,6 @@
             this.numericUpDown_caretWidth.TabIndex = 28;
             this.numericUpDown_caretWidth.Value = new decimal(new int[] { 2, 0, 0, 0 });
             // 
-            // label1
-            // 
-            this.label1.AutoSize = true;
-            this.label1.Location = new Point(6, 214);
-            this.label1.Name = "label1";
-            this.label1.Size = new Size(77, 15);
-            this.label1.TabIndex = 21;
-            this.label1.Text = "Samples / px:";
-            // 
             // checkBox_scrollLog
             // 
             this.checkBox_scrollLog.AutoSize = true;
@@ -568,15 +554,6 @@
             this.checkBox_scrollLog.TabIndex = 25;
             this.checkBox_scrollLog.Text = "Auto scroll Log Entries";
             this.checkBox_scrollLog.UseVisualStyleBackColor = true;
-            // 
-            // numericUpDown1
-            // 
-            this.numericUpDown1.Location = new Point(109, 212);
-            this.numericUpDown1.Maximum = new decimal(new int[] { 16384, 0, 0, 0 });
-            this.numericUpDown1.Name = "numericUpDown1";
-            this.numericUpDown1.Size = new Size(65, 23);
-            this.numericUpDown1.TabIndex = 24;
-            this.numericUpDown1.Value = new decimal(new int[] { 128, 0, 0, 0 });
             // 
             // label_info_frameRate
             // 
@@ -1018,7 +995,6 @@
             this.groupBox1.PerformLayout();
             ((System.ComponentModel.ISupportInitialize) this.numericUpDown_timeMarkers).EndInit();
             ((System.ComponentModel.ISupportInitialize) this.numericUpDown_caretWidth).EndInit();
-            ((System.ComponentModel.ISupportInitialize) this.numericUpDown1).EndInit();
             ((System.ComponentModel.ISupportInitialize) this.numericUpDown_frameRate).EndInit();
             ((System.ComponentModel.ISupportInitialize) this.numericUpDown_hue).EndInit();
             this.groupBox_audioScanner.ResumeLayout(false);
@@ -1066,9 +1042,7 @@
         private NumericUpDown numericUpDown_timeMarkers;
         private Label label_info_caretWidth;
         private NumericUpDown numericUpDown_caretWidth;
-        private Label label1;
         private CheckBox checkBox_scrollLog;
-        private NumericUpDown numericUpDown1;
         private Label label_info_frameRate;
         private NumericUpDown numericUpDown_frameRate;
         private Button button_colorCaret;

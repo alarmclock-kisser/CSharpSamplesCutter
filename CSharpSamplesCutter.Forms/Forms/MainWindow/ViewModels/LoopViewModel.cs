@@ -28,9 +28,17 @@ namespace CSharpSamplesCutter.Forms.MainWindow.ViewModels
         public string GetLoopFractionString() =>
             this.LoopEnabled ? $"1/{this.CurrentLoopFractionDenominator}" : "↻";
 
-        public void CycleLoopFraction()
+        public void CycleLoopFraction(bool previous = false)
         {
-            this.LoopFractionIndex = (this.LoopFractionIndex + 1) % this.LoopFractionDenominators.Length;
+            if (previous)
+            {
+                // Cycle one back
+                this.LoopFractionIndex = (this.LoopFractionIndex - 1 + this.LoopFractionDenominators.Length) % this.LoopFractionDenominators.Length;
+			}
+            else
+            {
+                this.LoopFractionIndex = (this.LoopFractionIndex + 1) % this.LoopFractionDenominators.Length;
+            }
         }
 
         public void ResetLoop()

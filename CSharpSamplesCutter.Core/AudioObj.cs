@@ -69,6 +69,7 @@ namespace CSharpSamplesCutter.Core
         private long positionOriginBytes = 0;
         private bool resumeFromSetPosition = false; // minimal: reinit on resume if position changed while paused
         private long pausedBaselineBytes = 0; // store baseline at pause for accurate delta after seek while paused
+        private long lastProviderSampleIndex = 0; // track last provider position for smooth caret in loops
 
         // Enums
         public Dictionary<string, double> Metrics { get; private set; } = [];
@@ -150,39 +151,46 @@ namespace CSharpSamplesCutter.Core
             }
         }
 
-        // ✅ Position in Frames - LOOPING-AWARE
+        // ✅ Position in Frames - LOOPING-AWARE & provider-accurate
         public long Position
         {
             get
             {
+                int ch = Math.Max(1, this.Channels);
+                int bytesPerFrame = ch * sizeof(float);
+
+                // Wenn nicht playing: aus gespeicherten Bytes ableiten
                 if (!this.PlayerPlaying)
                 {
                     long positionBytes = this.CurrentPlaybackPositionBytes;
-                    int bytesPerFrame = Math.Max(1, this.Channels) * sizeof(float);
                     return bytesPerFrame > 0 ? positionBytes / bytesPerFrame : 0;
                 }
 
-                // ✅ LOOPING: Wenn Loop aktiv, Position relativ zu LoopStartFrames
-                if (this.LoopEndFrames > this.LoopStartFrames)
+                // Bei aktivem Loop: exakte Provider-Position verwenden (kein Mapping über WaveOut-Bytes)
+                if (this.playback.IsLooping)
                 {
-                    long positionBytes = this.CurrentPlaybackPositionBytes;
-                    int bytesPerFrame = Math.Max(1, this.Channels) * sizeof(float);
-                    long absFrame = bytesPerFrame > 0 ? positionBytes / bytesPerFrame : 0;
-
-                    // ✅ Mapping: Absolute Position → Loop-relativ
-                    long loopLength = this.LoopEndFrames - this.LoopStartFrames;
-                    if (loopLength > 0)
+                    try
                     {
-                        long relFrame = absFrame - this.LoopStartFrames;
-                        relFrame = ((relFrame % loopLength) + loopLength) % loopLength; // Handles negatives
-                        return this.LoopStartFrames + relFrame;
+                        long providerSampleIndex = this.playback.GetLoopingCurrentSampleIndexUnsafe();
+                        if (providerSampleIndex > 0)
+                        {
+                            this.lastProviderSampleIndex = providerSampleIndex;
+                            return providerSampleIndex / ch; // in Frames
+                        }
+                    }
+                    catch { /* fallback below */ }
+
+                    // Fallback nur im Loop-Betrieb: letzter bekannter Provider-Index
+                    if (this.lastProviderSampleIndex > 0)
+                    {
+                        return this.lastProviderSampleIndex / ch;
                     }
                 }
 
-                // Normal (no loop)
-                long normalBytes = this.CurrentPlaybackPositionBytes;
-                int normalBytesPerFrame = Math.Max(1, this.Channels) * sizeof(float);
-                return normalBytesPerFrame > 0 ? normalBytes / normalBytesPerFrame : 0;
+                // Linearer Betrieb (kein Loop): aus absoluten Bytes ableiten
+                long absBytes = this.CurrentPlaybackPositionBytes;
+                long absFrame = bytesPerFrame > 0 ? absBytes / bytesPerFrame : 0;
+                return absFrame;
             }
         }
         public TimeSpan CurrentTime => TimeSpan.FromSeconds((double) this.Position / Math.Max(1, this.SampleRate));
@@ -970,10 +978,30 @@ namespace CSharpSamplesCutter.Core
             int ch = Math.Max(1, this.Channels);
             int bytesPerFrame = ch * sizeof(float);
 
-            // Absolute aktuelle Bytes (ohne weitere Anpassungen)
-            long absoluteBytes = this.CurrentPlaybackPositionBytes;
-            long absoluteFrames = bytesPerFrame > 0 ? absoluteBytes / bytesPerFrame : 0;
-            long currentSampleIndex = absoluteFrames * ch;
+            long absoluteFrames;
+            long currentSampleIndex;
+
+            // Falls aktuell Looping aktiv ist, nehme die exakte Sample-Position des Loop-Providers
+            if (this.playback.IsLooping)
+            {
+                try
+                {
+                    currentSampleIndex = this.playback.GetLoopingCurrentSampleIndexUnsafe();
+                    absoluteFrames = currentSampleIndex / ch;
+                }
+                catch
+                {
+                    long absoluteBytes = this.CurrentPlaybackPositionBytes;
+                    absoluteFrames = bytesPerFrame > 0 ? absoluteBytes / bytesPerFrame : 0;
+                    currentSampleIndex = absoluteFrames * ch;
+                }
+            }
+            else
+            {
+                long absoluteBytes = this.CurrentPlaybackPositionBytes;
+                absoluteFrames = bytesPerFrame > 0 ? absoluteBytes / bytesPerFrame : 0;
+                currentSampleIndex = absoluteFrames * ch;
+            }
 
             // Switch Provider
             this.playback.SwitchToLinear(currentSampleIndex);
@@ -985,6 +1013,9 @@ namespace CSharpSamplesCutter.Core
 
             this.SkippedPositionBytes = absoluteFrames * bytesPerFrame;
             try { this.positionOriginBytes = this.playback.GetPositionBytes(); } catch { this.positionOriginBytes = 0; }
+
+            // UI-Hinweis: lastProviderSampleIndex fortführen für sanften Übergang
+            this.lastProviderSampleIndex = currentSampleIndex;
         }
 
         // SetPosition: Frames -> Bytes; BasiseOffset setzen, ggf. nur merken (Seek beim nächsten Play)
@@ -1366,6 +1397,7 @@ namespace CSharpSamplesCutter.Core
                 return;
             }
 
+            // Ensure fadeLowAmplitude is reasonable
             fadeLowAmplitude = float.IsNaN(fadeLowAmplitude) ? 0.0f : fadeLowAmplitude;
             fadeLowAmplitude = Math.Clamp(fadeLowAmplitude, 0f, 1f);
 
@@ -1400,7 +1432,6 @@ namespace CSharpSamplesCutter.Core
                 });
             }).ConfigureAwait(false);
         }
-
 
 
 
@@ -1810,11 +1841,11 @@ namespace CSharpSamplesCutter.Core
         {
             List<string> infoLines = [
                 $"{(this.SampleRate / 1000.0f):F1} Hz, {this.Channels} ch., {this.BitDepth} bits",
-                $"Duration: {this.Duration:h\\:mm\\:ss\\.fff}",
-                $"({this.Length} f32 ≙ {(this.SizeInKb / 1024.0f):F2} MB)",
-                $"BPM-Tag: {this.Bpm:F3}",
-                $"BPM Scanned: {this.ScannedBpm:F3}",
-                ];
+                        $"Duration: {this.Duration:h\\:mm\\:ss\\.fff}",
+                        $"({this.Length} f32 ≙ {(this.SizeInKb / 1024.0f):F2} MB)",
+                        $"BPM-Tag: {this.Bpm:F3}",
+                        $"BPM Scanned: {this.ScannedBpm:F3}",
+                        ];
 
             return formatted ? string.Join(Environment.NewLine, infoLines) : string.Join(" | ", infoLines);
         }

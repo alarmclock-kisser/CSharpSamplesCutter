@@ -351,7 +351,7 @@ namespace CSharpSamplesCutter.Forms.Dialogs
                         token.ThrowIfCancellationRequested();
                         if (loop.Data != null && loop.Data.Length > 0)
                         {
-                            float maxAbs = loop.Data.Max(v => Math.Abs(v));
+                            float maxAbs = loop.Data.Max(Math.Abs);
                             if (maxAbs > 0.00001f)
                             {
                                 float factor = this.targetPeak / maxAbs;

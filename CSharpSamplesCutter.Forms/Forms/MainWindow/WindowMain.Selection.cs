@@ -16,6 +16,18 @@ namespace CSharpSamplesCutter.Forms
                 return;
             }
 
+            // Persist view state (zoom + scroll) of previously selected track before switching
+            var prevTrack = this.LastSelectedTrack;
+            if (prevTrack != null)
+            {
+                try
+                {
+                    prevTrack.LastSamplesPerPixel = this.SamplesPerPixel;
+                    prevTrack.ScrollOffset = this.ViewOffsetFrames;
+                }
+                catch { }
+            }
+
             if (listBox.SelectedIndex >= 0)
             {
                 if (contraryListBox != null)
@@ -37,8 +49,7 @@ namespace CSharpSamplesCutter.Forms
 
             if (this.LastSelectedTrack != null)
             {
-                try { this.LastSelectedTrack.PreviousSteps.ListChanged -= this.PreviousSteps_ListChanged; }
-                catch { }
+                try { this.LastSelectedTrack.PreviousSteps.ListChanged -= this.PreviousSteps_ListChanged; } catch { }
             }
 
             if (track == null)
@@ -64,10 +75,10 @@ namespace CSharpSamplesCutter.Forms
                 return;
             }
 
-            try { track.PreviousSteps.ListChanged += this.PreviousSteps_ListChanged; }
-            catch { }
+            try { track.PreviousSteps.ListChanged += this.PreviousSteps_ListChanged; } catch { }
             this.LastSelectedTrack = track;
 
+            // --- Konsistente Auswahl: Immer alles updaten, auch bei erneutem Klick ---
             this.button_playback.Enabled = true;
             this.button_autoCut.Enabled = true;
             this.button_playback.Enabled = true;
@@ -76,15 +87,15 @@ namespace CSharpSamplesCutter.Forms
             this.button_remove.Enabled = true;
             this.label_undoSteps.Text = $"Undo's: {track.PreviousSteps.Count}";
 
+            // Restore per-track scroll + zoom
             this.viewOffsetFrames = track.ScrollOffset;
             this.textBox_audioInfo.Text = track.GetInfoString();
-            this.textBox_trackMetrics.Text = track.GetMetricsString();
+            this.textBox_trackMetrics.Text = track.GetMetricsString(); // Jetzt auch für Reserve-Liste korrekt
             this.label_audioName.Text = track.Name;
 
             // Calculate fit-to-length SPP if track has never been zoomed
             if (track.LastSamplesPerPixel <= 0)
             {
-                // Calculate SPP so entire track fits in the visible waveform area
                 int pictureBoxWidth = Math.Max(1, this.pictureBox_wave.Width);
                 if (track.Data != null && track.Data.Length > 0 && track.Channels > 0)
                 {
@@ -100,6 +111,12 @@ namespace CSharpSamplesCutter.Forms
             else
             {
                 this.numericUpDown_samplesPerPixel.Value = track.LastSamplesPerPixel;
+            }
+
+            // Wenn Loop aktiv ist, für den neuen Track sofort die Loop-Grenzen anhand der aktuellen Auswahl setzen
+            if (this.loopState.LoopEnabled)
+            {
+                this.UpdateLoopBounds();
             }
 
             this.hScrollBar_scroll.Enabled = true;
