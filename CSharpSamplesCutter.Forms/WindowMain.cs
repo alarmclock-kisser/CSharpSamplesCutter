@@ -575,7 +575,7 @@ namespace CSharpSamplesCutter.Forms
         {
             if (this.hScrollBar_caretPosition.Maximum > 0)
             {
-                int newValue = (int)Math.Round(Math.Clamp(value, 0f, 1f) * this.hScrollBar_caretPosition.Maximum);
+                int newValue = (int) Math.Round(Math.Clamp(value, 0f, 1f) * this.hScrollBar_caretPosition.Maximum);
                 this.hScrollBar_caretPosition.Value = Math.Clamp(newValue, this.hScrollBar_caretPosition.Minimum, this.hScrollBar_caretPosition.Maximum);
             }
         }
@@ -611,6 +611,41 @@ namespace CSharpSamplesCutter.Forms
                 }
             }
             catch { }
+        }
+
+        private async void button_autoLoop_Click(object sender, EventArgs e)
+        {
+            ListBox selectedLb = this.SelectedCollectionListBox ?? this.listBox_audios;
+            var audios = this.SelectedGuids
+                .Select(id => this.AudioC.Audios.FirstOrDefault(a => a.Id == id) ?? this.AudioC_res.Audios.FirstOrDefault(a => a.Id == id))
+                .Where(a => a != null)
+                .Cast<AudioObj>() // Cast von AudioObj? zu AudioObj, um Nullability zu entfernen
+                .ToList();
+
+            if (audios.Count <= 0)
+            {
+                LogCollection.Log("No audio samples selected for auto drum loop generation.");
+                return;
+            }
+
+            var loop = await AutoDrumLooper.GenerateLoopAsync(audios);
+
+            if (selectedLb == this.listBox_audios)
+            {
+                this.AudioC.Audios.Add(loop);
+                this.listBox_audios.SelectedIndex = -1;
+                this.listBox_audios.SelectedIndex = this.listBox_audios.Items.Count - 1;
+            }
+            else
+            {
+                this.AudioC_res.Audios.Add(loop);
+                this.listBox_reserve.SelectedIndex = -1;
+                this.listBox_reserve.SelectedIndex = this.listBox_reserve.Items.Count - 1;
+            }
+
+
+
+
         }
     }
 }
