@@ -619,7 +619,7 @@ namespace CSharpSamplesCutter.Forms
             var audios = this.SelectedGuids
                 .Select(id => this.AudioC.Audios.FirstOrDefault(a => a.Id == id) ?? this.AudioC_res.Audios.FirstOrDefault(a => a.Id == id))
                 .Where(a => a != null)
-                .Cast<AudioObj>() // Cast von AudioObj? zu AudioObj, um Nullability zu entfernen
+                .Cast<AudioObj>()
                 .ToList();
 
             if (audios.Count <= 0)
@@ -628,7 +628,17 @@ namespace CSharpSamplesCutter.Forms
                 return;
             }
 
-            var loop = await AutoDrumLooper.GenerateLoopAsync(audios);
+            AudioObj loop;
+            if (ModifierKeys.HasFlag(Keys.Control))
+            {
+                // Ctrl: generate drum palette (atoms with short gaps)
+                loop = await AutoDrumLooper.GeneratePaletteAsync(audios);
+            }
+            else
+            {
+                // Default: generate arranged loop
+                loop = await AutoDrumLooper.GenerateLoopAsync(audios);
+            }
 
             if (selectedLb == this.listBox_audios)
             {
@@ -642,10 +652,6 @@ namespace CSharpSamplesCutter.Forms
                 this.listBox_reserve.SelectedIndex = -1;
                 this.listBox_reserve.SelectedIndex = this.listBox_reserve.Items.Count - 1;
             }
-
-
-
-
         }
     }
 }

@@ -413,5 +413,183 @@ namespace CSharpSamplesCutter.Core
             if (t.Contains("tom")) return "Tom";
             return "Perc";
         }
+
+        public static async Task<AudioObj> GeneratePaletteAsync(IEnumerable<AudioObj>? input, double? bpmOverride = null, double gapBeatFraction = 0.25)
+        {
+            if (input == null)
+            {
+                throw new ArgumentNullException(nameof(input));
+            }
+            var list = input.Where(s => s != null && s.Data != null && s.Data.Length > 0).ToList();
+            if (list.Count == 0)
+            {
+                throw new ArgumentException("No valid audio inputs provided.");
+            }
+
+            // Target format: most common SR/Channels
+            int targetRate = list.Where(s => s.SampleRate > 0).Select(s => s.SampleRate).GroupBy(r => r).OrderByDescending(g => g.Count()).FirstOrDefault()?.Key ?? 44100;
+            int targetChannels = list.Where(s => s.Channels > 0).Select(s => Math.Max(1, s.Channels)).GroupBy(c => c).OrderByDescending(g => g.Count()).FirstOrDefault()?.Key ?? 1;
+            targetChannels = Math.Clamp(targetChannels, 1, 2);
+
+            // Determine BPM (for gap length)
+            double bpm;
+            if (bpmOverride.HasValue && bpmOverride.Value > 0)
+            {
+                bpm = bpmOverride.Value;
+            }
+            else
+            {
+                var bpms = list.Select(s => s.Bpm > 0 ? s.Bpm : (s.ScannedBpm > 0 ? s.ScannedBpm : 0.0)).Where(b => b > 0.0).Select(b => (double) b).ToList();
+                if (bpms.Count > 0) bpm = bpms.OrderBy(x => x).ElementAt(bpms.Count / 2);
+                else
+                {
+                    // Try scan from first
+                    try { bpm = await BeatScanner.ScanBpmAsync(list[0]); } catch { bpm = 0.0; }
+                    if (bpm <= 0.0) bpm = 170.0;
+                }
+            }
+
+            // Build atoms
+            var atoms = new List<AudioObj>();
+            if (list.Count == 1)
+            {
+                var src = list[0];
+                var sliced = await SliceLoopToDrumAtomsAsync(src, bpm).ConfigureAwait(false);
+                atoms.AddRange(sliced);
+            }
+            else
+            {
+                atoms.AddRange(list);
+            }
+
+            // If still empty ⇒ fallback to entire first item as one atom
+            if (atoms.Count == 0)
+            {
+                atoms.Add(list[0]);
+            }
+
+            // Prepare concatenation
+            long framesPerBeat = (long) Math.Round(targetRate * 60.0 / Math.Max(1.0, bpm));
+            long gapFrames = (long) Math.Max(1, Math.Round(framesPerBeat * Math.Clamp(gapBeatFraction, 0.05, 1.0))); // default 1/4 beat
+            long fadeFrames = Math.Max(1, targetRate / 500); // ~2ms
+
+            // Precompute unified atoms (resample/upmix) and their frame lengths
+            var unified = new List<float[]>();
+            var lengths = new List<long>();
+
+            foreach (var a in atoms)
+            {
+                if (a.Data == null || a.Data.Length == 0 || a.Channels <= 0) continue;
+                float[] data = a.Data;
+                // Channels
+                data = a.Channels == targetChannels ? data : (targetChannels == 2 ? UpmixToStereo(data, a.Channels) : DownmixToMono(data, a.Channels));
+                // SampleRate
+                if (a.SampleRate > 0 && a.SampleRate != targetRate)
+                {
+                    data = ResampleLinear(data, a.SampleRate, targetRate, targetChannels);
+                }
+                if (data.Length <= 0) continue;
+                unified.Add(data);
+                lengths.Add(data.LongLength / Math.Max(1, targetChannels));
+            }
+
+            if (unified.Count == 0)
+            {
+                throw new InvalidOperationException("No usable atoms to build the palette.");
+            }
+
+            // Total frames: sum(frames) + gaps between
+            long totalFrames = 0;
+            for (int i = 0; i < lengths.Count; i++)
+            {
+                totalFrames += lengths[i];
+                if (i < lengths.Count - 1) totalFrames += gapFrames;
+            }
+
+            var mix = new float[totalFrames * targetChannels];
+
+            // Write atoms sequentially with gap and small fades
+            long cursor = 0;
+            for (int i = 0; i < unified.Count; i++)
+            {
+                var src = unified[i];
+                long frames = lengths[i];
+                MixInterleaved(mix, src, cursor, frames, 1.0f, targetChannels, targetChannels, fadeFrames);
+                cursor += frames;
+                if (i < unified.Count - 1)
+                {
+                    cursor += gapFrames;
+                }
+            }
+
+            var loop = new AudioObj
+            {
+                Id = Guid.NewGuid(),
+                Name = $"DrumPalette_{bpm:F0}bpm_{atoms.Count}atoms",
+                Data = mix,
+                SampleRate = targetRate,
+                Channels = targetChannels,
+                BitDepth = 32,
+                Bpm = (float) bpm,
+                Length = mix.LongLength,
+                Duration = TimeSpan.FromSeconds((double) (mix.LongLength / Math.Max(1, targetChannels)) / targetRate),
+                SampleTag = "Palette"
+            };
+
+            await loop.NormalizeAsync(0.98f);
+            return loop;
+        }
+
+        private static float[] UpmixToStereo(float[] data, int srcCh)
+        {
+            if (srcCh == 2) return data;
+            long frames = data.LongLength / Math.Max(1, srcCh);
+            var dst = new float[frames * 2];
+            for (long f = 0; f < frames; f++)
+            {
+                float m = data[f * srcCh];
+                long o = f * 2;
+                dst[o] = m;
+                dst[o + 1] = m;
+            }
+            return dst;
+        }
+
+        private static float[] DownmixToMono(float[] data, int srcCh)
+        {
+            if (srcCh == 1) return data;
+            long frames = data.LongLength / Math.Max(1, srcCh);
+            var dst = new float[frames];
+            for (long f = 0; f < frames; f++)
+            {
+                double sum = 0.0;
+                for (int c = 0; c < srcCh; c++) sum += data[f * srcCh + c];
+                dst[f] = (float) (sum / srcCh);
+            }
+            return dst;
+        }
+
+        private static float[] ResampleLinear(float[] interleaved, int srcRate, int dstRate, int channels)
+        {
+            if (srcRate == dstRate || interleaved.Length == 0) return interleaved;
+            long frames = interleaved.LongLength / Math.Max(1, channels);
+            double ratio = (double) dstRate / srcRate;
+            long outFrames = (long) Math.Max(1, Math.Round(frames * ratio));
+            var dst = new float[outFrames * channels];
+            for (long of = 0; of < outFrames; of++)
+            {
+                double srcPos = of / ratio; // in frames
+                long i0 = (long) Math.Floor(srcPos);
+                long i1 = Math.Min(frames - 1, i0 + 1);
+                double t = srcPos - i0;
+                for (int c = 0; c < channels; c++)
+                {
+                    double v0 = interleaved[Math.Clamp((int) (i0 * channels + c), 0, interleaved.Length - 1)];
+                    double v1 = interleaved[Math.Clamp((int) (i1 * channels + c), 0, interleaved.Length - 1)];
+                    dst[of * channels + c] = (float) (v0 + (v1 - v0) * t);
+                }
+            }
+            return dst;
+        }
     }
 }
