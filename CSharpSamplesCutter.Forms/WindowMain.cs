@@ -8,6 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using CSharpSamplesCutter.Core;
+using CSharpSamplesCutter.Core.Processors_V1;
+using CSharpSamplesCutter.Core.Processors_V2;
 using CSharpSamplesCutter.Forms.Forms.MainWindow.ViewModels;
 using CSharpSamplesCutter.Forms.MainWindow.ViewModels;
 using Dialogs = CSharpSamplesCutter.Forms.Dialogs;
@@ -19,7 +21,7 @@ namespace CSharpSamplesCutter.Forms
     {
         private const int DefaultFrameRate = 60;
         private const int MinFrameIntervalMs = 5;
-        private const int MaxFrameIntervalMs = 1000;
+        private const int MaxFrameIntervalMs = 1000;                      
         private const int CaretInfoIntervalMs = 150;
         private const int DefaultSamplesPerPixelToFit = 128;
         private const float DefaultHueAdjustmentValue = 1.75f;
@@ -38,7 +40,7 @@ namespace CSharpSamplesCutter.Forms
 
         private long viewOffsetFrames;
         private int samplesPerPixelToFit = DefaultSamplesPerPixelToFit;
-        private readonly HashSet<Guid> selectedGuidsBuffer = new();
+        private readonly HashSet<Guid> selectedGuidsBuffer = [];
 
         // Loop ViewModel hinzufügen
         private readonly LoopViewModel loopState = new();
@@ -69,6 +71,9 @@ namespace CSharpSamplesCutter.Forms
                 this.panel_basicProcessingParameters,
                 this.checkBox_autoParameters,
                 this.checkBox_optionalParameters);
+
+            // Initialisiere erweiterte Verarbeitung
+            this.InitializeAdvancedProcessing();
 
             this.numericUpDown_timeMarkers.Enabled = this.checkBox_timeMarkers.Checked;
             this.label_volume.Text = $"Vol {this.Volume * 100.0f:0.0}%";
@@ -225,18 +230,6 @@ namespace CSharpSamplesCutter.Forms
             set => this.selectionState.LastSelectedTrack = value;
         }
 
-        private int? AnchorIndexMain
-        {
-            get => this.selectionState.AnchorIndexMain;
-            set => this.selectionState.AnchorIndexMain = value;
-        }
-
-        private int? AnchorIndexReserve
-        {
-            get => this.selectionState.AnchorIndexReserve;
-            set => this.selectionState.AnchorIndexReserve = value;
-        }
-
         private string SelectionMode
         {
             get => this.selectionState.SelectionMode;
@@ -279,24 +272,6 @@ namespace CSharpSamplesCutter.Forms
 
         private ConcurrentDictionary<Guid, CancellationToken> PlaybackCancellationTokens => this.playbackState.CancellationTokens;
 
-        private bool SpaceKeyDebounceActive
-        {
-            get => this.playbackState.SpaceKeyDebounceActive;
-            set => this.playbackState.SpaceKeyDebounceActive = value;
-        }
-
-        private DateTime LastSpaceToggleUtc
-        {
-            get => this.playbackState.LastSpaceToggleUtc;
-            set => this.playbackState.LastSpaceToggleUtc = value;
-        }
-
-        private bool LoopEnabled
-        {
-            get => this.playbackState.LoopEnabled;
-            set => this.playbackState.LoopEnabled = value;
-        }
-
         private bool IsDragInitiated
         {
             get => this.dragDropState.IsDragInitiated;
@@ -318,7 +293,7 @@ namespace CSharpSamplesCutter.Forms
         private int SkipTracks => Math.Max(0, (int) this.numericUpDown_skipTracks.Value);
 
         private readonly object playbackForceFollowGate = new object();
-        private readonly System.Collections.Generic.HashSet<Guid> playbackForceFollow = new();
+        private readonly System.Collections.Generic.HashSet<Guid> playbackForceFollow = [];
 
         private void AddPlaybackForceFollow(Guid id)
         {
@@ -384,24 +359,6 @@ namespace CSharpSamplesCutter.Forms
                 LogCollection.Log($"Error in CaretInfoTimer_Tick: {ex.Message}");
             }
         }
-
-        private bool LoopEnabled_Internal
-        {
-            get => this.loopState.LoopEnabled;
-            set => this.loopState.LoopEnabled = value;
-        }
-
-        private int LoopFractionIndex_Internal
-        {
-            get => this.loopState.LoopFractionIndex;
-            set => this.loopState.LoopFractionIndex = value;
-        }
-
-        private int LoopFractionDenominator_Internal =>
-            this.loopState.CurrentLoopFractionDenominator;
-
-        private string LoopFractionString_Internal =>
-            this.loopState.GetLoopFractionString();
 
         private void SaveViewState()
         {
@@ -568,16 +525,6 @@ namespace CSharpSamplesCutter.Forms
 
             this.textBox_scannedBpm.Text = bpm.ToString("F2");
             this.UpdateSelectedCollectionListBox();
-        }
-
-        // Setzt die Caret-Position (0.0 bis 1.0) über den Scrollbar
-        private void SetCaretPosition(float value)
-        {
-            if (this.hScrollBar_caretPosition.Maximum > 0)
-            {
-                int newValue = (int) Math.Round(Math.Clamp(value, 0f, 1f) * this.hScrollBar_caretPosition.Maximum);
-                this.hScrollBar_caretPosition.Value = Math.Clamp(newValue, this.hScrollBar_caretPosition.Minimum, this.hScrollBar_caretPosition.Maximum);
-            }
         }
 
         // Restore focus to a neutral control for global playback keys after actions

@@ -1,4 +1,5 @@
-﻿using Microsoft.Win32;
+﻿using CSharpSamplesCutter.Core.Processors_V1;
+using Microsoft.Win32;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;

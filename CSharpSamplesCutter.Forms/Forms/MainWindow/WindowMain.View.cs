@@ -608,17 +608,6 @@ namespace CSharpSamplesCutter.Forms
             return frameIndex;
         }
 
-        private double GetTimeUnderCursor()
-        {
-            if (this.SelectedTrack == null)
-            {
-                return 0.0;
-            }
-
-            long frameIndex = this.GetFrameUnderCursor();
-            return frameIndex > 0 ? frameIndex / (double) this.SelectedTrack.SampleRate : 0.0;
-        }
-
         private void ListBox_audios_DrawItem(object? sender, DrawItemEventArgs e)
         {
             if (sender == null)

@@ -199,51 +199,6 @@ namespace CSharpSamplesCutter.Forms
             }
         }
 
-        private Dictionary<IEnumerable<Type>, Control> CreateParameterControlsMap(string methodName)
-        {
-            MethodInfo? methodInfo = this.MethodsInfoList.FirstOrDefault(m => m.Name == methodName);
-            if (methodInfo == null)
-            {
-                LogCollection.Log($"Method '{methodName}' not found.");
-                return [];
-            }
-
-            Dictionary<IEnumerable<Type>, Control> parameterControlsMap = [];
-            ParameterInfo[] parameters = methodInfo.GetParameters();
-
-            // If the checkbox hides optional parameters, then we remove optional ones from the list
-            if (!this.CheckBox_optionalParameters.Checked)
-            {
-                // If checkbox is unchecked -> do NOT show optional parameters
-                parameters = parameters.Where(p => !p.IsOptional).ToArray();
-            }
-
-            for (int i = 0; i < parameters.Length; i++)
-            {
-                ParameterInfo parameter = parameters[i];
-
-                // Skip AudioObj parameters - those should be provided from SelectedTrack automatically
-                if (IsAudioObjParameter(parameter.ParameterType))
-                {
-                    continue;
-                }
-
-                Control? control = this.CreateControlForParameterType(parameter.ParameterType, i);
-                if (control != null)
-                {
-                    // Position will be set later by BuildParametersPanel; Name and Tag store useful info
-                    control.Name = $"param_{i}";
-                    control.Tag = parameter; // store ParameterInfo directly
-
-                    // Use a unique IEnumerable<Type> instance for the key: a single-element array.
-                    var key = new Type[] { parameter.ParameterType };
-                    parameterControlsMap.Add(key, control);
-                }
-            }
-
-            return parameterControlsMap;
-        }
-
         private static bool IsAudioObjParameter(Type t)
         {
             if (t == null)

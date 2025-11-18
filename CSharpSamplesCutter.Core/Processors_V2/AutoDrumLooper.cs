@@ -1,9 +1,10 @@
-﻿using System;
+﻿using CSharpSamplesCutter.Core.Processors_V1;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace CSharpSamplesCutter.Core
+namespace CSharpSamplesCutter.Core.Processors_V2
 {
     public static class AutoDrumLooper
     {

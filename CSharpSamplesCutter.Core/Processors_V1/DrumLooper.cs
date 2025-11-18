@@ -8,7 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MathNet.Numerics.IntegralTransforms; // FFT
 
-namespace CSharpSamplesCutter.Core
+namespace CSharpSamplesCutter.Core.Processors_V1
 {
     public static class DrumLooper
     {

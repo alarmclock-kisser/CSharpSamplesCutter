@@ -1,5 +1,4 @@
-﻿using CSharpSamplesCutter.Core;
-using MathNet.Numerics;
+﻿using MathNet.Numerics;
 using MathNet.Numerics.IntegralTransforms;
 using System;
 using System.Collections.Concurrent;
@@ -10,7 +9,7 @@ using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace CSharpSamplesCutter.Core
+namespace CSharpSamplesCutter.Core.Processors_V1
 {
     public static class TimeStretcher
     {

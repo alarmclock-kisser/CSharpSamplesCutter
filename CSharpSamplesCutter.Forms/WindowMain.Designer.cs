@@ -103,7 +103,9 @@
             this.button_basicProcessingGo = new Button();
             this.comboBox_basicProcessing = new ComboBox();
             this.button_loop = new Button();
-            this.button_autoLoop = new Button();
+            this.groupBox_processingV2 = new GroupBox();
+            this.button_advancedProcessingGo = new Button();
+            this.comboBox_advancedProcessing = new ComboBox();
             ((System.ComponentModel.ISupportInitialize) this.pictureBox_wave).BeginInit();
             this.groupBox_view.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize) this.numericUpDown_skipTracks).BeginInit();
@@ -118,6 +120,7 @@
             ((System.ComponentModel.ISupportInitialize) this.numericUpDown_scanWidth).BeginInit();
             ((System.ComponentModel.ISupportInitialize) this.numericUpDown_lookingRange).BeginInit();
             this.groupBox_basicProcessing.SuspendLayout();
+            this.groupBox_processingV2.SuspendLayout();
             this.SuspendLayout();
             // 
             // pictureBox_wave
@@ -165,7 +168,7 @@
             // 
             // button_load
             // 
-            this.button_load.BackColor = SystemColors.Info;
+            this.button_load.BackColor = Color.FromArgb(  255,   255,   192);
             this.button_load.Location = new Point(1096, 247);
             this.button_load.Name = "button_load";
             this.button_load.Size = new Size(75, 23);
@@ -225,7 +228,7 @@
             // button_autoCut
             // 
             this.button_autoCut.BackColor = SystemColors.Info;
-            this.button_autoCut.Location = new Point(1096, 276);
+            this.button_autoCut.Location = new Point(1096, 315);
             this.button_autoCut.Name = "button_autoCut";
             this.button_autoCut.Size = new Size(75, 23);
             this.button_autoCut.TabIndex = 18;
@@ -421,7 +424,7 @@
             // button_drumSet
             // 
             this.button_drumSet.BackColor = SystemColors.Info;
-            this.button_drumSet.Location = new Point(1096, 305);
+            this.button_drumSet.Location = new Point(1096, 344);
             this.button_drumSet.Name = "button_drumSet";
             this.button_drumSet.Size = new Size(75, 23);
             this.button_drumSet.TabIndex = 28;
@@ -949,23 +952,42 @@
             this.button_loop.UseVisualStyleBackColor = true;
             this.button_loop.Click += this.button_loop_Click;
             // 
-            // button_autoLoop
+            // groupBox_processingV2
             // 
-            this.button_autoLoop.BackColor = SystemColors.Info;
-            this.button_autoLoop.Location = new Point(1096, 334);
-            this.button_autoLoop.Name = "button_autoLoop";
-            this.button_autoLoop.Size = new Size(75, 23);
-            this.button_autoLoop.TabIndex = 40;
-            this.button_autoLoop.Text = "Auto Loop";
-            this.button_autoLoop.UseVisualStyleBackColor = false;
-            this.button_autoLoop.Click += this.button_autoLoop_Click;
+            this.groupBox_processingV2.BackColor = SystemColors.ControlLight;
+            this.groupBox_processingV2.Controls.Add(this.button_advancedProcessingGo);
+            this.groupBox_processingV2.Controls.Add(this.comboBox_advancedProcessing);
+            this.groupBox_processingV2.Location = new Point(337, 417);
+            this.groupBox_processingV2.Name = "groupBox_processingV2";
+            this.groupBox_processingV2.Size = new Size(250, 214);
+            this.groupBox_processingV2.TabIndex = 41;
+            this.groupBox_processingV2.TabStop = false;
+            this.groupBox_processingV2.Text = "Full-Auto Advanced Processing";
+            // 
+            // button_advancedProcessingGo
+            // 
+            this.button_advancedProcessingGo.Location = new Point(202, 22);
+            this.button_advancedProcessingGo.Name = "button_advancedProcessingGo";
+            this.button_advancedProcessingGo.Size = new Size(42, 23);
+            this.button_advancedProcessingGo.TabIndex = 40;
+            this.button_advancedProcessingGo.Text = "Go";
+            this.button_advancedProcessingGo.UseVisualStyleBackColor = true;
+            // 
+            // comboBox_advancedProcessing
+            // 
+            this.comboBox_advancedProcessing.FormattingEnabled = true;
+            this.comboBox_advancedProcessing.Location = new Point(6, 22);
+            this.comboBox_advancedProcessing.Name = "comboBox_advancedProcessing";
+            this.comboBox_advancedProcessing.Size = new Size(190, 23);
+            this.comboBox_advancedProcessing.TabIndex = 41;
+            this.comboBox_advancedProcessing.Text = "Select a function ...";
             // 
             // WindowMain
             // 
             this.AutoScaleDimensions = new SizeF(7F, 15F);
             this.AutoScaleMode = AutoScaleMode.Font;
             this.ClientSize = new Size(1424, 821);
-            this.Controls.Add(this.button_autoLoop);
+            this.Controls.Add(this.groupBox_processingV2);
             this.Controls.Add(this.button_loop);
             this.Controls.Add(this.groupBox_basicProcessing);
             this.Controls.Add(this.groupBox_audioScanner);
@@ -1016,6 +1038,7 @@
             ((System.ComponentModel.ISupportInitialize) this.numericUpDown_lookingRange).EndInit();
             this.groupBox_basicProcessing.ResumeLayout(false);
             this.groupBox_basicProcessing.PerformLayout();
+            this.groupBox_processingV2.ResumeLayout(false);
             this.ResumeLayout(false);
             this.PerformLayout();
         }
@@ -1096,6 +1119,8 @@
         private CheckBox checkBox_optionalParameters;
         private CheckBox checkBox_autoParameters;
         private Button button_loop;
-        private Button button_autoLoop;
+        private GroupBox groupBox_processingV2;
+        private Button button_advancedProcessingGo;
+        private ComboBox comboBox_advancedProcessing;
     }
 }

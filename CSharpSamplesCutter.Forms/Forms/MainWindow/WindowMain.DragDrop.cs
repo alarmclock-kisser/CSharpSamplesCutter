@@ -229,7 +229,7 @@ namespace CSharpSamplesCutter.Forms
                 return;
             }
 
-            List<string> fileCandidates = new();
+            List<string> fileCandidates = [];
             foreach (var p in distinctPaths)
             {
                 try

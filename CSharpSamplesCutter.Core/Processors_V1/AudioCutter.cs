@@ -5,7 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace CSharpSamplesCutter.Core
+namespace CSharpSamplesCutter.Core.Processors_V1
 {
     public static class AudioCutter
     {

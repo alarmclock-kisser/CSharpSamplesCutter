@@ -1,4 +1,5 @@
 ﻿using CSharpSamplesCutter.Core;
+using CSharpSamplesCutter.Core.Processors_V1;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -43,8 +44,7 @@ namespace CSharpSamplesCutter.Forms.Dialogs
 
         // Erweiterte Parameter (Defaults)
         private double bpmOverride => (double) this.numericUpDown_bpmOverride.Value;
-        private double swing => (double) this.numericUpDown_swing.Value;
-        private double humanizeMs => (double) this.numericUpDown_humanize.Value;
+
         private int seed => (int) this.numericUpDown_seed.Value;
         private float targetPeak => (float) this.numericUpDown_targetPeak.Value;
 
